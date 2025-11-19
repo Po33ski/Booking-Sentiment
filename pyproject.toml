@@ -1,0 +1,46 @@
+[project]
+name = "MLOps_course_AGH_lab_4"
+version = "1.0.0"
+description = ""
+readme = "README.md"
+
+requires-python = "==3.11.*"
+
+dependencies = [
+    "captum",
+    "cleanlab",
+    "datasets",
+    "giskard",
+    "jupyter",
+    "matplotlib",
+    "pydantic>=2",
+    "pandas",
+    "ruff",
+    "scikit-learn",
+    "sentence-transformers",
+    "typer>=0.9",
+    "transformers[torch]"
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128" }
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/nightly/cu128"
+explicit = true
+ 
+[tool.uv]
+scripts = { 
+    "load" = "python -m booking_sentiment.cli load",
+    "clean" = "python -m booking_sentiment.cli clean",
+    "quality" = "python -m booking_sentiment.cli quality",
+    "split" = "python -m booking_sentiment.cli split",
+    "train" = "python -m booking_sentiment.cli train",
+    "eval" = "python -m booking_sentiment.cli evaluate",
+    "scan" = "python -m booking_sentiment.cli scan",
+    "explain" = "python -m booking_sentiment.cli explain",
+    "all" = "python -m booking_sentiment.cli all"
+}
