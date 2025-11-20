@@ -18,8 +18,8 @@ def split_dataframe(df: pd.DataFrame, cfg: SplitConfig) -> Tuple[pd.DataFrame, p
     test_size = cfg.test_frac
     train_valid, test = train_test_split(
         df,
-        test_size=test_size,
-        random_state=cfg.random_state,
+        test_size=test_size, # test size is the fraction of the data to be used for testing
+        random_state=cfg.random_state, # random state is the seed for the random number generator
         stratify=stratify_labels,
     )
     # recompute valid frac relative to remaining
@@ -27,8 +27,8 @@ def split_dataframe(df: pd.DataFrame, cfg: SplitConfig) -> Tuple[pd.DataFrame, p
     stratify_labels_tv = train_valid["label"] if cfg.stratify else None
     train, valid = train_test_split(
         train_valid,
-        test_size=valid_rel,
-        random_state=cfg.random_state,
+        test_size=valid_rel, # valid size is the fraction of the data to be used for validation
+        random_state=cfg.random_state, # random state is the seed for the random number generator   
         stratify=stratify_labels_tv,
     )
     print(f"[split] train={len(train)} valid={len(valid)} test={len(test)}")

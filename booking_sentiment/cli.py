@@ -14,7 +14,7 @@ from .quality import run_cleanlab
 from .splits import split_dataframe
 from .train_hf import train_hf
 from .evaluate import evaluate_model
-from .behavior import scan_stub
+from .behavioral import run_giskard_scan
 from .explain import explain_samples
 from .check_duplicates import check_duplicates
 # app: root of the CLI
@@ -68,7 +68,7 @@ def quality(config: Optional[str] = typer.Option(None, "--config", "-c")) -> Non
     df2.to_parquet(out, index=False)
     typer.echo(f"[quality] Quality output saved to: {out}")
 
-
+# split: split the dataframe into train, validation and test sets
 @app.command()
 def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = ProjectConfig.load(config)
@@ -92,7 +92,7 @@ def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     test_df.to_parquet(cfg.paths.artifacts_dir / "splits/test.parquet", index=False)
     typer.echo("[split] Saved splits to artifacts/splits")
 
-
+# train: train the model on the train and validation sets
 @app.command(name="train")
 def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = ProjectConfig.load(config)
@@ -106,7 +106,7 @@ def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> N
     model_dir, _ = train_hf(train_df, valid_df, cfg.train, cfg.paths)
     typer.echo(f"[train] Model artifact at: {model_dir}")
 
-
+# evaluate: evaluate the model on the test set
 @app.command()
 def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = ProjectConfig.load(config)
@@ -126,18 +126,6 @@ def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> No
 
 
 @app.command()
-def scan(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
-    ensure_dirs(cfg)
-    test_path = cfg.paths.artifacts_dir / "splits/test.parquet"
-    if not test_path.exists():
-        typer.echo("[scan] Test split not found. Run 'uv run split' first.")
-        raise typer.Exit(code=1)
-    test_df = pd.read_parquet(test_path)
-    scan_stub(test_df)
-
-
-@app.command()
 def explain(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = ProjectConfig.load(config)
     ensure_dirs(cfg)
@@ -150,6 +138,21 @@ def explain(config: Optional[str] = typer.Option(None, "--config", "-c")) -> Non
     out = cfg.paths.artifacts_dir / "explain"
     explain_samples(model_dir, test_df, out)
     typer.echo(f"[explain] Saved attribution TSVs to: {out}")
+
+# scan: scan the test set with Giskard
+@app.command()
+def scan(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    ensure_dirs(cfg)
+    test_path = cfg.paths.artifacts_dir / "splits/test.parquet"
+    if not test_path.exists():
+        typer.echo("[scan] Test split not found. Run 'uv run split' first.")
+        raise typer.Exit(code=1)
+    test_df = pd.read_parquet(test_path)
+    model_dir = cfg.paths.artifacts_dir / "finetuned_model"
+    out = cfg.paths.artifacts_dir / "giskard"
+    run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
+    typer.echo(f"[scan] Giskard scan saved to: {out}")
 
 
 @app.command()
@@ -167,7 +170,7 @@ def all(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     df = run_cleanlab(df, cfg.quality)
     # split
     if cfg.dataset.sample_size:
-        a
+        assert cfg.dataset.sample_size > 0, "Sample size must be greater than 0"
         df = df.sample(n=cfg.dataset.sample_size, random_state=cfg.dataset.random_state, replace=False)
         df = df.reset_index(drop=True)
     train_df, valid_df, test_df = split_dataframe(df, cfg.split)

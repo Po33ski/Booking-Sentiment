@@ -51,11 +51,17 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainCon
     torch.manual_seed(train_cfg.seed)
     torch.cuda.manual_seed_all(train_cfg.seed)
 
+
+    # Set device
+    device = torch.device(train_cfg.device)
+    model.to(device)
+
     # Load tokenizer and datasets    
     tokenizer = AutoTokenizer.from_pretrained(train_cfg.model_name)
     datasets_tokenized = _build_datasets(train_df, valid_df, tokenizer)
     model = AutoModelForSequenceClassification.from_pretrained(train_cfg.model_name, num_labels=2)
 
+    # Compute metrics: MCC (Matthews Correlation Coefficient) for evaluation metrics (MCC is a measure of the quality of the classification model)
     def compute_metrics(eval_pred: EvalPrediction) -> dict:
         y_true = eval_pred.label_ids.ravel()
         logits = torch.from_numpy(eval_pred.predictions)
@@ -75,11 +81,13 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainCon
         load_best_model_at_end=True,
         seed=train_cfg.seed,
         data_seed=train_cfg.seed,
-        fp16=True,
+        fp16=train_cfg.device != "cpu",
         dataloader_num_workers=1,
-        use_cpu=False,
+        device=train_cfg.device,
+        use_cpu= train_cfg.device == "cpu"
     )
 
+    # Create the trainer
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -88,9 +96,13 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainCon
         tokenizer=tokenizer,
         compute_metrics=compute_metrics,
     )
+    # Train the model
     trainer.train()
+    # Save the model
     trainer.save_model(str(out_dir))
+    # Save the tokenizer
     tokenizer.save_pretrained(str(out_dir))
+    # Return the output directory and the best metric
     return out_dir, {"best_metric": trainer.state.best_metric}
 
 

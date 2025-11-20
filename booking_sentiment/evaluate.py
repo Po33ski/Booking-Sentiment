@@ -34,7 +34,13 @@ def evaluate_model(model_dir: str, test_df: pd.DataFrame) -> Dict[str, Any]:
     logits = torch.cat(all_logits, dim=0)
     y_pred_proba = softmax(logits, dim=1)[:, 1].numpy()
     y_pred = (y_pred_proba >= 0.5).astype(int)
-
+    # Compute metrics: Precision, Recall, F1, AUROC, MCC
+    # Precision: the proportion of true positives among all predicted positives
+    # Recall: the proportion of true positives among all actual positives
+    # F1: the harmonic mean of Precision and Recall
+    # AUROC: the area under the ROC curve
+    # MCC: the Matthews Correlation Coefficient
+    # MCC is a measure of the quality of the classification model
     metrics = {
         "Precision": float(precision_score(y_test, y_pred)),
         "Recall": float(recall_score(y_test, y_pred)),
