@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import typer
 
@@ -23,6 +24,7 @@ app = typer.Typer(add_completion=False, help="Booking Sentiment - MLOps-friendly
 # ensure_dirs: ensure the directories exist for the artifacts (splits, models, etc.)
 def ensure_dirs(cfg: ProjectConfig) -> None:
     cfg.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+
 
 # load: load the raw dataset from HuggingFace and return positive/negative Series
 @app.command()
@@ -165,6 +167,7 @@ def all(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     df = run_cleanlab(df, cfg.quality)
     # split
     if cfg.dataset.sample_size:
+        a
         df = df.sample(n=cfg.dataset.sample_size, random_state=cfg.dataset.random_state, replace=False)
         df = df.reset_index(drop=True)
     train_df, valid_df, test_df = split_dataframe(df, cfg.split)

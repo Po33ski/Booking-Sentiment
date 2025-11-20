@@ -6,6 +6,7 @@ def check_duplicates(df_neg: pd.DataFrame, df_pos: pd.DataFrame, df_raw: pd.Data
     """
     Check for duplicates in the dataframe and return a dataframe with columns: text, label
     """
+    print("Checking for duplicates in the fresh dataframe")
     print("\n -- Negative reviews: ")
     neg_value_counts = df_neg.value_counts()
     total_neg_reviews = len(df_neg)
