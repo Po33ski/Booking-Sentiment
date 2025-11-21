@@ -60,7 +60,7 @@ class TrainConfig(BaseModel):
     learning_rate: float = Field(default=1e-4, gt=0.0)
     epochs: int = Field(default=1, ge=1)
     seed: int = Field(default=0)
-    use_cpu: bool = Field(default=True)
+    device: str = Field(default="cuda") # "cuda" or "cpu"
 
 # QualityConfig: Configuration for the quality like embedding model name, cv folds, logistic c, etc.
 class QualityConfig(BaseModel):

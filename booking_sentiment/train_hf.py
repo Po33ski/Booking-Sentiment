@@ -22,11 +22,11 @@ from transformers import (
 from .config import TrainConfig, PathsConfig
 
 
-def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, tokenizer) -> DatasetDict:
+def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, tokenizer) -> DatasetDict:
     ds = DatasetDict()
     ds["train"] = Dataset.from_pandas(train_df, split="train")
     ds["valid"] = Dataset.from_pandas(valid_df, split="valid")
-
+    ds["test"] = Dataset.from_pandas(test_df, split="test") # test set is not used for training or validation
     def tokenize(examples: dict) -> dict:
         encoded = tokenizer(examples["text"], padding=True, truncation=True)
         encoded["label"] = examples["label"]
@@ -36,7 +36,7 @@ def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, tokenizer) -
     return ds
 
 
-def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainConfig, paths: PathsConfig) -> Tuple[Path, Dict[str, Any]]:
+def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, train_cfg: TrainConfig, paths: PathsConfig) -> Tuple[Path, Dict[str, Any]]:
     """
     Fine-tune DistilBERT (or other HF model) on CPU and save artifacts.
     """
@@ -48,17 +48,17 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainCon
     os.environ["PYTHONHASHSEED"] = str(train_cfg.seed)
     random.seed(train_cfg.seed)
     np.random.seed(train_cfg.seed)
-    torch.manual_seed(train_cfg.seed)
-    torch.cuda.manual_seed_all(train_cfg.seed)
+    if train_cfg.device == "cuda":
+        torch.manual_seed(train_cfg.seed)
+        torch.cuda.manual_seed_all(train_cfg.seed)
+    else:
+        torch.manual_seed(train_cfg.seed)
 
-
-    # Set device
-    device = torch.device(train_cfg.device)
-    model.to(device)
-
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     # Load tokenizer and datasets    
     tokenizer = AutoTokenizer.from_pretrained(train_cfg.model_name)
-    datasets_tokenized = _build_datasets(train_df, valid_df, tokenizer)
+    # Build datasets
+    datasets_tokenized = _build_datasets(train_df, valid_df, test_df, tokenizer)
     model = AutoModelForSequenceClassification.from_pretrained(train_cfg.model_name, num_labels=2)
 
     # Compute metrics: MCC (Matthews Correlation Coefficient) for evaluation metrics (MCC is a measure of the quality of the classification model)
@@ -81,9 +81,8 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, train_cfg: TrainCon
         load_best_model_at_end=True,
         seed=train_cfg.seed,
         data_seed=train_cfg.seed,
-        fp16=train_cfg.device != "cpu",
+        fp16=train_cfg.device == "cuda",
         dataloader_num_workers=1,
-        device=train_cfg.device,
         use_cpu= train_cfg.device == "cpu"
     )
 

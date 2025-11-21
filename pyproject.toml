@@ -9,7 +9,7 @@ requires-python = "==3.11.*"
 dependencies = [
     "captum",
     "cleanlab",
-    "datasets",
+"datasets<3",
     "giskard",
     "jupyter",
     "matplotlib",
@@ -37,3 +37,7 @@ torch = [
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/nightly/cu128"
 explicit = true
+
+[tool.setuptools.packages.find]
+include = ["booking_sentiment*"]
+exclude = ["artifacts", "configs"]

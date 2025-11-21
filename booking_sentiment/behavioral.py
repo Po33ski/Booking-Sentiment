@@ -8,7 +8,6 @@ import pandas as pd
 import torch
 from giskard import Model as GiskardModel, Dataset as GiskardDataset, scan
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
-from IPython.display import display
 
 def run_giskard_scan(model_dir: Path, test_df: pd.DataFrame, device: str = "cpu", out_dir: Optional[Path] = None):
     """
@@ -50,7 +49,7 @@ def run_giskard_scan(model_dir: Path, test_df: pd.DataFrame, device: str = "cpu"
     )
     # Scan the test set using the Giskard model
     results = scan(giskard_model, giskard_dataset, verbose=False)
-    display(results)
+    print(results)
     # Save the results to a file
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)

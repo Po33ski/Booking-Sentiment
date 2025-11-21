@@ -2,9 +2,9 @@ import pandas as pd
 from IPython.display import display
 
 
-def check_duplicates(df_neg: pd.DataFrame, df_pos: pd.DataFrame, df_raw: pd.DataFrame):
+def check_duplicates(df_neg: pd.Series, df_pos: pd.Series, df_raw: pd.DataFrame):
     """
-    Check for duplicates in the dataframe and return a dataframe with columns: text, label
+    Check for duplicates in the dataframe and print the top 20 most common duplicates
     """
     print("Checking for duplicates in the fresh dataframe")
     print("\n -- Negative reviews: ")
@@ -36,5 +36,3 @@ def check_duplicates(df_neg: pd.DataFrame, df_pos: pd.DataFrame, df_raw: pd.Data
         'Percentage': (all_value_counts.head(20) / total_all_reviews * 100).round(2)
     })
     display(top_20_all)
-
-    return None

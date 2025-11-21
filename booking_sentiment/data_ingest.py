@@ -8,19 +8,21 @@ from datasets import load_dataset
 from .config import DatasetConfig
 
 # load_raw_dataset: load the raw dataset from HuggingFace and return positive/negative Series
-def load_raw_dataset(cfg: DatasetConfig) -> Tuple[pd.Series, pd.Series]:
+def load_raw_dataset(cfg: DatasetConfig) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
     """
     Load booking reviews dataset from HuggingFace and return positive/negative Series.
     """
     print(f"[ingest] Loading dataset '{cfg.dataset_name}' split='{cfg.split}'")
-    ds = load_dataset(cfg.dataset_name)[cfg.split].to_pandas()
+    df_raw = load_dataset(cfg.dataset_name)[cfg.split].to_pandas()
     # extract negative and positive reviews from the dataset
     #negative_col is the column name for the negative reviews
-    neg = ds[cfg.negative_col].astype(str).str.strip()
+    df_neg = df_raw[cfg.negative_col].astype(str).str.strip()
     #positive_col is the column name for the positive reviews
-    pos = ds[cfg.positive_col].astype(str).str.strip()
-    print(f"[ingest] Loaded rows: {len(ds)}")
-    return neg, pos
+    df_pos = df_raw[cfg.positive_col].astype(str).str.strip()
+    print(f"[ingest] Loaded rows: {len(df_raw)}")
+    print("Negative reviews:", len(df_neg))
+    print("Positive reviews:", len(df_pos))
+    return df_neg, df_pos, df_raw
 
 
  
