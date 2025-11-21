@@ -9,7 +9,7 @@ import torch
 from giskard import Model as GiskardModel, Dataset as GiskardDataset, scan
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
-def run_giskard_scan(model_dir: Path, test_df: pd.DataFrame, device: str = "cpu", out_dir: Optional[Path] = None):
+def run_giskard_scan(model_dir: Path, test_df: pd.DataFrame, device: str = "cuda", out_dir: Optional[Path] = None):
     """
     Run Giskard behavioral scan using a saved HF model (loaded from model_dir).
     Mirrors the approach from the notebook: build a pipeline and wrap a prediction_function.

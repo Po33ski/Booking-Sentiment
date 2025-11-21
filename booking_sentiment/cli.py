@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
-from sklearn.utils import resample
 import shutil
-import numpy as np
+from sklearn.utils import resample
 import pandas as pd
 import typer
 
@@ -17,7 +15,6 @@ from .train_hf import train_hf
 from .evaluate import evaluate_model
 from .behavioral import run_giskard_scan
 from .explain import explain_samples
-from .check_duplicates import check_duplicates
 # app: root of the CLI
 app = typer.Typer(add_completion=False, help="Booking Sentiment - MLOps-friendly CLI")
 
@@ -27,28 +24,19 @@ def ensure_dirs(cfg: ProjectConfig) -> None:
     cfg.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
 
-# load: load the raw dataset from HuggingFace and return positive/negative Series
-@app.command()
-def load(config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to JSON config file")) -> None:
-    # load the configuration from a JSON file or return the default configuration
-    cfg = ProjectConfig.load(config)
+def run_load(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     df_neg, df_pos, df_raw = load_raw_dataset(cfg.dataset)
-    # save the raw dataframe, negative and positive series to parquet files
     out_raw = cfg.paths.artifacts_dir / "raw_preview.parquet"
     out_neg = cfg.paths.artifacts_dir / "neg_preview.parquet"
     out_pos = cfg.paths.artifacts_dir / "pos_preview.parquet"
     df_raw.to_parquet(out_raw, index=False)
-    df_neg = df_neg.to_frame(name="text")
-    df_neg.to_parquet(out_neg, index=False)
-    df_pos = df_pos.to_frame(name="text")
-    df_pos.to_parquet(out_pos, index=False)
+    df_neg.to_frame(name="text").to_parquet(out_neg, index=False)
+    df_pos.to_frame(name="text").to_parquet(out_pos, index=False)
     typer.echo(f"[load] Preview saved to: {out_raw}, {out_neg}, {out_pos}")
 
-# clean: clean the raw dataset and return a dataframe with columns: text, label
-@app.command()
-def clean(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_clean(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_neg = cfg.paths.artifacts_dir / "neg_preview.parquet"
     in_pos = cfg.paths.artifacts_dir / "pos_preview.parquet"
@@ -62,35 +50,34 @@ def clean(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     df_clean.to_parquet(out_clean, index=False)
     typer.echo(f"[clean] Cleaned data saved to: {out_clean}")
 
-# quality: run the quality analysis (CleanLab) and return a dataframe with columns: text, label
-@app.command()
-def quality(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_quality(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "clean.parquet"
     if not in_path.exists():
         typer.echo("[quality] 'clean.parquet' not found. Run 'uv run clean' first.")
         raise typer.Exit(code=1)
     df_clean = pd.read_parquet(in_path)
-    # Optional sampling to limit CleanLab memory/time
     if cfg.dataset.sample_size:
         assert cfg.dataset.sample_size > 0, "Sample size must be greater than 0"
-        # stratify by label
-        df_clean = resample(df_clean, replace=False, n_samples=cfg.dataset.sample_size, random_state=cfg.dataset.random_state, stratify=df_clean["label"])
+        df_clean = resample(
+            df_clean,
+            replace=False,
+            n_samples=cfg.dataset.sample_size,
+            random_state=cfg.dataset.random_state,
+            stratify=df_clean["label"],
+        )
         df_clean = df_clean.reset_index(drop=True)
     df_fixed = run_cleanlab(df_clean, cfg.quality)
     out = cfg.paths.artifacts_dir / "quality_fixed.parquet"
     df_fixed.to_parquet(out, index=False)
     typer.echo(f"[quality] Quality output saved to: {out}")
 
-# split: split the dataframe into train, validation and test sets
-@app.command()
-def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_split(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "quality.parquet"
     if not in_path.exists():
-        # fallback to clean data
         in_path = cfg.paths.artifacts_dir / "clean.parquet"
     if not in_path.exists():
         typer.echo("[split] No input data. Run 'uv run clean' (and optionally 'uv run quality') first.")
@@ -107,10 +94,8 @@ def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     test_df.to_parquet(cfg.paths.artifacts_dir / "splits/test.parquet", index=False)
     typer.echo("[split] Saved splits to artifacts/splits")
 
-# train: train the model on the train and validation sets
-@app.command(name="train")
-def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_train(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
     if not (splits_dir / "train.parquet").exists():
@@ -122,10 +107,8 @@ def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> N
     model_dir, _ = train_hf(train_df, valid_df, test_df, cfg.train, cfg.paths)
     typer.echo(f"[train] Model artifact at: {model_dir}")
 
-# evaluate: evaluate the model on the test set
-@app.command()
-def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_evaluate(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
     if not (splits_dir / "test.parquet").exists():
@@ -141,9 +124,7 @@ def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> No
     typer.echo(f"[evaluate] Metrics saved to: {out}")
 
 
-@app.command()
-def explain(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+def run_explain(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
     if not (splits_dir / "test.parquet").exists():
@@ -155,10 +136,8 @@ def explain(config: Optional[str] = typer.Option(None, "--config", "-c")) -> Non
     explain_samples(model_dir, test_df, out)
     typer.echo(f"[explain] Saved attribution TSVs to: {out}")
 
-# scan: scan the test set with Giskard
-@app.command()
-def scan(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
-    cfg = ProjectConfig.load(config)
+
+def run_scan(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     test_path = cfg.paths.artifacts_dir / "splits/test.parquet"
     if not test_path.exists():
@@ -170,17 +149,70 @@ def scan(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
     typer.echo(f"[scan] Giskard scan saved to: {out}")
 
+
+def run_purge(cfg: ProjectConfig) -> None:
+    artifacts_dir = cfg.paths.artifacts_dir
+    if artifacts_dir.exists():
+        shutil.rmtree(artifacts_dir)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    typer.echo(f"[purge] Cleaned artifacts directory: {artifacts_dir}")
+
+
+# load: load the raw dataset from HuggingFace and return positive/negative Series
+@app.command()
+def load(config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to JSON config file")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_load(cfg)
+
+# clean: clean the raw dataset and return a dataframe with columns: text, label
+@app.command()
+def clean(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_clean(cfg)
+
+# quality: run the quality analysis (CleanLab) and return a dataframe with columns: text, label
+@app.command()
+def quality(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_quality(cfg)
+
+# split: split the dataframe into train, validation and test sets
+@app.command()
+def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_split(cfg)
+
+# train: train the model on the train and validation sets
+@app.command(name="train")
+def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_train(cfg)
+
+# evaluate: evaluate the model on the test set
+@app.command()
+def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_evaluate(cfg)
+
+
+@app.command()
+def explain(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_explain(cfg)
+
+# scan: scan the test set with Giskard
+@app.command()
+def scan(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_scan(cfg)
+
 @app.command()
 def purge(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     """
     Remove all artifacts (models, splits, previews, metrics) and recreate empty artifacts dir.
     """
     cfg = ProjectConfig.load(config)
-    artifacts_dir = cfg.paths.artifacts_dir
-    if artifacts_dir.exists():
-        shutil.rmtree(artifacts_dir)
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    typer.echo(f"[purge] Cleaned artifacts directory: {artifacts_dir}")
+    run_purge(cfg)
 
 # all: run the full pipeline
 @app.command()
@@ -188,31 +220,17 @@ def all(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     """
     Run the full pipeline.
     """
-    cfg = ProjectConfig.load(config)    
-    ensure_dirs(cfg)
-    # load + clean
-    neg, pos = load_raw_dataset(cfg.dataset)
-    df = clean_and_label(neg, pos, cfg.cleaning)
-    (cfg.paths.artifacts_dir / "splits").mkdir(parents=True, exist_ok=True)
-    # Optional sampling BEFORE CleanLab to limit memory/time
-    if cfg.dataset.sample_size:
-        assert cfg.dataset.sample_size > 0, "Sample size must be greater than 0"
-        df = df.sample(n=cfg.dataset.sample_size, random_state=cfg.dataset.random_state, replace=False)
-        df = df.reset_index(drop=True)
-    # quality on sampled data
-    df = run_cleanlab(df, cfg.quality)
-    # split
-    train_df, valid_df, test_df = split_dataframe(df, cfg.split)
-    train_df.to_parquet(cfg.paths.artifacts_dir / "splits/train.parquet", index=False)
-    valid_df.to_parquet(cfg.paths.artifacts_dir / "splits/valid.parquet", index=False)
-    test_df.to_parquet(cfg.paths.artifacts_dir / "splits/test.parquet", index=False)
-    # train
-    model_dir, _ = train_hf(train_df, valid_df, cfg.train, cfg.paths)
-    # evaluate
-    metrics = evaluate_model(str(model_dir), test_df)
-    out = cfg.paths.artifacts_dir / "metrics.json"
-    import json as _json
-    out.write_text(_json.dumps(metrics, indent=2), encoding="utf-8")
+    cfg = ProjectConfig.load(config)
+    steps = (
+        run_load,
+        run_clean,
+        run_quality,
+        run_split,
+        run_train,
+        run_evaluate,
+    )
+    for step in steps:
+        step(cfg)
     typer.echo("[all] Pipeline completed.")
 
 
@@ -220,3 +238,4 @@ if __name__ == "__main__":
     app()
 
 
+ 
