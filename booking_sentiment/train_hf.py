@@ -38,7 +38,7 @@ def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.
 
 def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, train_cfg: TrainConfig, paths: PathsConfig) -> Tuple[Path, Dict[str, Any]]:
     """
-    Fine-tune DistilBERT (or other HF model) on CPU and save artifacts.
+    Fine-tune DistilBERT (or other HF model) on GPU or CPU and save artifacts.
     """
     print("[train] Running fine-tune training")
     out_dir = paths.artifacts_dir / "finetuned_model"
@@ -82,7 +82,7 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFra
         seed=train_cfg.seed,
         data_seed=train_cfg.seed,
         fp16=train_cfg.device == "cuda",
-        dataloader_num_workers=1,
+        dataloader_num_workers=1, # the previous checkpoint is deleted
         use_cpu= train_cfg.device == "cpu"
     )
 

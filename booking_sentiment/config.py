@@ -12,7 +12,7 @@ class DatasetConfig(BaseModel):
     split: str = Field(default="train")
     positive_col: str = Field(default="Positive_Review")
     negative_col: str = Field(default="Negative_Review")
-    sample_size: Optional[int] = Field(default=5000, ge=1)
+    sample_size: Optional[int] = Field(default=10000, ge=1)
     random_state: int = Field(default=0)
 
 # CleaningConfig: Configuration for the cleaning like removing terms, casefolding, deduplication, etc.
@@ -58,7 +58,7 @@ class SplitConfig(BaseModel):
 class TrainConfig(BaseModel):
     model_name: str = Field(default="distilbert/distilbert-base-uncased")
     learning_rate: float = Field(default=1e-4, gt=0.0)
-    epochs: int = Field(default=1, ge=1)
+    epochs: int = Field(default=3, ge=1)
     seed: int = Field(default=0)
     device: str = Field(default="cuda") # "cuda" or "cpu"
 
