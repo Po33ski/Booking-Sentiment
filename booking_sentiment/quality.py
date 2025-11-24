@@ -139,7 +139,7 @@ def run_cleanlab(df: pd.DataFrame, cfg: QualityConfig) -> pd.DataFrame:
         pred_labels = label_issues["predicted_label"]
         # fix the labels
         df_label_fixed.loc[idxs, "label"] = pred_labels
-        print(f"[quality] Fixed labels for {len(df_label_fixed)} rows")
+        print(f"[quality] Fixed labels for {len(idxs)} rows")
         print()
     
     # Outlier issues: report and keep (as in the notebook)

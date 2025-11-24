@@ -100,7 +100,12 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFra
     # Save the model
     trainer.save_model(str(out_dir))
     # Save the tokenizer
+    
     tokenizer.save_pretrained(str(out_dir))
+    # Save the tokenized datasets
+    tokenized_dir = paths.artifacts_dir / "tokenized"
+    tokenized_dir.mkdir(parents=True, exist_ok=True)
+    datasets_tokenized.save_to_disk(str(tokenized_dir))
     # Return the output directory and the best metric
     return out_dir, {"best_metric": trainer.state.best_metric}
 

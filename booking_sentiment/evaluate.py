@@ -8,32 +8,34 @@ import torch
 from sklearn.metrics import f1_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score
 from torch.nn.functional import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from datasets import DatasetDict
+from pathlib import Path
+from .config import PathsConfig
+from transformers import Trainer, TrainingArguments
 
 
-def evaluate_model(model_dir: str, test_df: pd.DataFrame) -> Dict[str, Any]:
+def evaluate_model(model_dir: str, tokenized_dir: str, test_df: pd.DataFrame) -> Dict[str, Any]:
     """
     Evaluate saved HF model on test dataframe and compute metrics.
     """
     print(f"[eval] Evaluating model at '{model_dir}' on {len(test_df)} rows")
+
+    # Load the model and the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
-    model.eval()
+    datasets_tokenized = DatasetDict.load_from_disk(tokenized_dir)
+    # Load the training arguments
+    training_args = TrainingArguments(output_dir=model_dir, do_train=False, do_eval=True, per_device_eval_batch_size=32)
+    # Create the trainer
+    trainer = Trainer(model=model, args=training_args, tokenizer=tokenizer, eval_dataset=datasets_tokenized["test"])
 
-    texts = test_df["text"].astype(str).tolist()
-    y_test = test_df["label"].to_numpy()
-
-    all_logits = []
-    batch_size = 32
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        enc = tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
-        with torch.no_grad():
-            logits = model(**enc).logits
-        all_logits.append(logits)
-
-    logits = torch.cat(all_logits, dim=0)
+    # Predict the test set
+    pred_output = trainer.predict(datasets_tokenized["test"])
+    # Get the logits and the predictions
+    logits = torch.from_numpy(pred_output.predictions)
     y_pred_proba = softmax(logits, dim=1)[:, 1].numpy()
     y_pred = (y_pred_proba >= 0.5).astype(int)
+    y_test = datasets_tokenized["test"]["label"]
     # Compute metrics: Precision, Recall, F1, AUROC, MCC
     # Precision: the proportion of true positives among all predicted positives
     # Recall: the proportion of true positives among all actual positives
@@ -52,6 +54,7 @@ def evaluate_model(model_dir: str, test_df: pd.DataFrame) -> Dict[str, Any]:
         "[eval] "
         + ", ".join(f"{k}={v:.4f}" for k, v in metrics.items())
     )
+
     return metrics
 
 

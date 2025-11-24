@@ -68,6 +68,8 @@ class QualityConfig(BaseModel):
     cv_folds: int = Field(default=5, ge=2)
     regularization_c: float = Field(default=0.1, gt=0.0)
     device: str = Field(default="cuda")
+    label_issue_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    max_label_fixes: Optional[int] = Field(default=None, ge=1)
 # PathsConfig: Configuration for the paths like artifacts dir, etc.
 class PathsConfig(BaseModel):
     artifacts_dir: Path = Field(default=Path("artifacts"))

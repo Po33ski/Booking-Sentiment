@@ -11,6 +11,14 @@ from captum.attr import InputXGradient, configure_interpretable_embedding_layer
 from torch.nn.functional import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+class ModelWrapper(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
+        def forward(self, inputs, attention_mask):
+            return self.m(inputs, attention_mask=attention_mask)[0]
+
 
 def _compute_attributions(model, tokenizer, text: str) -> Tuple[List[str], List[float], float, int]:
     tokenizer_output = tokenizer.encode_plus(
@@ -29,15 +37,7 @@ def _compute_attributions(model, tokenizer, text: str) -> Tuple[List[str], List[
         tokenizer_output["input_ids"]
     )
 
-    class Wrapper(torch.nn.Module):
-        def __init__(self, m):
-            super().__init__()
-            self.m = m
-
-        def forward(self, inputs, attention_mask):
-            return self.m(inputs, attention_mask=attention_mask)[0]
-
-    model_wrapper = Wrapper(model_copy)
+    model_wrapper = ModelWrapper(model_copy)
     input_x_gradient = InputXGradient(model_wrapper)
     attributions = input_x_gradient.attribute(
         input_embeddings,
@@ -48,7 +48,7 @@ def _compute_attributions(model, tokenizer, text: str) -> Tuple[List[str], List[
     attributions = attributions.sum(dim=-1).squeeze(0)
     norm = torch.norm(attributions)
     attributions = attributions / (norm + 1e-12)
-    attributions = [float(a) for a in attributions]
+    attributions = list([float(a) for a in attributions])
 
     with torch.no_grad():
         logits = model(**tokenizer_output).logits

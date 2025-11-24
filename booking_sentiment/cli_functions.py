@@ -79,8 +79,6 @@ def run_split(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "quality_fixed.parquet"
     if not in_path.exists():
-        in_path = cfg.paths.artifacts_dir / "clean.parquet"
-    if not in_path.exists():
         typer.echo("[split] No input data. Run 'uv run clean' (and optionally 'uv run quality') first.")
         raise typer.Exit(code=1)
     df_fixed = pd.read_parquet(in_path)
@@ -120,7 +118,8 @@ def run_evaluate(cfg: ProjectConfig) -> None:
         raise typer.Exit(code=1)
     test_df = pd.read_parquet(splits_dir / "test.parquet")
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
-    metrics = evaluate_model(str(model_dir), test_df)
+    tokenized_dir = cfg.paths.artifacts_dir / "tokenized"
+    metrics = evaluate_model(model_dir, tokenized_dir, test_df)
     out = cfg.paths.artifacts_dir / "metrics.json"
     import json as _json
 
