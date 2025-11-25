@@ -59,7 +59,7 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFra
     tokenizer = AutoTokenizer.from_pretrained(train_cfg.model_name)
     # Build datasets
     datasets_tokenized = _build_datasets(train_df, valid_df, test_df, tokenizer)
-    model = AutoModelForSequenceClassification.from_pretrained(train_cfg.model_name, num_labels=2)
+    model = AutoModelForSequenceClassification.from_pretrained(train_cfg.model_name, num_labels=2) # num_labels=2 because we have 2 classes: positive and negative
 
     # Compute metrics: MCC (Matthews Correlation Coefficient) for evaluation metrics (MCC is a measure of the quality of the classification model)
     def compute_metrics(eval_pred: EvalPrediction) -> dict:
