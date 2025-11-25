@@ -13,7 +13,7 @@ Then run:
 
 ```bash
 # 1. Clone this repo and enter it
-git clone https://github.com/<your-org-or-user>/Booking-sentiment.git
+git clone https://github.com/Po33ski/Booking-Sentiment.git
 cd Booking-sentiment
 
 # 2. Install Python 3.11 env + dependencies via uv
