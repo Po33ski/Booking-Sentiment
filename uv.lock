@@ -1355,7 +1355,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mlops-course-agh-lab-4"
+name = "mlops-pipeline"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

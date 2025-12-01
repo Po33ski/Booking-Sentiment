@@ -4,7 +4,18 @@ from typing import Optional
 import typer
 
 from .config import ProjectConfig
-from .cli_functions import run_load, run_clean, run_quality, run_split, run_train, run_evaluate, run_explain, run_scan, run_purge
+from .cli_functions import (
+    run_load,
+    run_clean,
+    run_quality,
+    run_split,
+    run_train,
+    run_evaluate,
+    run_inference,
+    run_explain,
+    run_scan,
+    run_purge,
+)
 # app: root of the CLI
 app = typer.Typer(add_completion=False, help="Booking Sentiment - MLOps-friendly CLI")
 
@@ -44,6 +55,12 @@ def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> N
 def evaluate(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = ProjectConfig.load(config)
     run_evaluate(cfg)
+
+
+@app.command()
+def inference(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+    cfg = ProjectConfig.load(config)
+    run_inference(cfg)
 
 
 @app.command()

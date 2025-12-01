@@ -13,3 +13,5 @@ artifacts/
 .mlruns/
 *.parquet
 .DS_Store
+.data_analyze_instr.md
+.instr.ipynb

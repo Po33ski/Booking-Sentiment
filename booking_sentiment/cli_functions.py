@@ -4,6 +4,9 @@ import shutil
 from sklearn.utils import resample
 import pandas as pd
 import typer
+import torch
+from torch.nn.functional import softmax
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from .config import ProjectConfig
 from .data_ingest import load_raw_dataset
@@ -24,7 +27,7 @@ from .explain import explain_samples
 def ensure_dirs(cfg: ProjectConfig) -> None:
     cfg.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-
+# load: load the raw dataset from HuggingFace and return positive/negative Series
 def run_load(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     df_neg, df_pos, df_raw = load_raw_dataset(cfg.dataset)
@@ -37,6 +40,7 @@ def run_load(cfg: ProjectConfig) -> None:
     typer.echo(f"[load] Preview saved to: {out_raw}, {out_neg}, {out_pos}")
 
 
+# clean: clean the raw dataset and return a dataframe with columns: text, label
 def run_clean(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_neg = cfg.paths.artifacts_dir / "neg_preview.parquet"
@@ -52,6 +56,7 @@ def run_clean(cfg: ProjectConfig) -> None:
     typer.echo(f"[clean] Cleaned data saved to: {out_clean}")
 
 
+# quality: run the quality analysis (CleanLab) and return a dataframe with columns: text, label
 def run_quality(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "clean.parquet"
@@ -75,6 +80,7 @@ def run_quality(cfg: ProjectConfig) -> None:
     typer.echo(f"[quality] Quality output saved to: {out}")
 
 
+# split: split the dataframe into train, validation and test sets
 def run_split(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "quality_fixed.parquet"
@@ -97,6 +103,7 @@ def run_split(cfg: ProjectConfig) -> None:
     typer.echo("[split] Saved splits to artifacts/splits")
 
 
+# train: train the model on the train and validation sets
 def run_train(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
@@ -109,7 +116,7 @@ def run_train(cfg: ProjectConfig) -> None:
     model_dir, _ = train_hf(train_df, valid_df, test_df, cfg.train, cfg.paths)
     typer.echo(f"[train] Model artifact at: {model_dir}")
 
-
+# evaluate: evaluate the model on the test set
 def run_evaluate(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
@@ -127,6 +134,7 @@ def run_evaluate(cfg: ProjectConfig) -> None:
     typer.echo(f"[evaluate] Metrics saved to: {out}")
 
 
+# explain: explain the model on the test set
 def run_explain(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
@@ -140,6 +148,7 @@ def run_explain(cfg: ProjectConfig) -> None:
     typer.echo(f"[explain] Saved attribution TSVs to: {out}")
 
 
+# scan: scan the test set with Giskard
 def run_scan(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     test_path = cfg.paths.artifacts_dir / "splits/test.parquet"
@@ -152,7 +161,41 @@ def run_scan(cfg: ProjectConfig) -> None:
     run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
     typer.echo(f"[scan] Giskard scan saved to: {out}")
 
+# inference: prompt for a single review and classify it with the fine-tuned model
+def run_inference(cfg: ProjectConfig) -> None:
+    """
+    Prompt for a single review and classify it with the fine-tuned model.
+    """
+    ensure_dirs(cfg)
+    model_dir = cfg.paths.artifacts_dir / "finetuned_model"
+    if not model_dir.exists():
+        typer.echo("[inference] 'finetuned_model' not found. Run 'uv run train' first.")
+        raise typer.Exit(code=1)
 
+    text = typer.prompt("Enter a comment to classify").strip()
+    if not text:
+        typer.echo("[inference] No comment provided – exiting.")
+        raise typer.Exit(code=1)
+
+    tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+    model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
+    model.eval() # set the model to evaluation mode
+
+    encoded = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=512,
+    )
+    with torch.no_grad():
+        logits = model(**encoded).logits
+        prob_pos = softmax(logits, dim=1)[0, 1].item()
+
+    label = "positive" if prob_pos >= 0.5 else "negative"
+    typer.echo(f"[inference] Result: {label} (P(pos)={prob_pos:.3f})")
+
+# purge: purge the artifacts directory
 def run_purge(cfg: ProjectConfig) -> None:
     artifacts_dir = cfg.paths.artifacts_dir
     if artifacts_dir.exists():
