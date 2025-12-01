@@ -1,5 +1,5 @@
 [project]
-name = "MLOps_course_AGH_lab_4"
+name = "MLOps_pipeline"
 version = "1.0.0"
 description = ""
 readme = "README.md"

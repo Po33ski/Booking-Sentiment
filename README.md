@@ -104,9 +104,9 @@ Core commands (executed in order during `all`):
 4. `split` – create stratified parquet splits under `artifacts/splits/`.
 5. `train` – fine-tune DistilBERT, save to `artifacts/finetuned_model` and tokenized datasets.
 6. `evaluate` – compute Precision/Recall/F1/AUROC/MCC and list difficult samples + write `metrics.json`.
-7. `explain` – Captum Integrated Gradients for sampled test reviews → TSV files.
-8. `scan` – run Giskard safety scan (optional).
-9. `purge` – clear `artifacts/` when you need a fresh run.
+7. `scan` – run Giskard safety scan.
+8. `explain` – Captum Integrated Gradients for sampled test reviews → TSV files.
+
 
 ## Configuration Highlights (`configs/quick.json`)
 - `dataset.sample_size` – subsample before quality/split (set `null` for full set).
