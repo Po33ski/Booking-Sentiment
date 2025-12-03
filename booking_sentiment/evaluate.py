@@ -14,11 +14,11 @@ from .config import PathsConfig
 from transformers import Trainer, TrainingArguments
 
 
-def evaluate_model(model_dir: str, tokenized_dir: str, test_df: pd.DataFrame) -> Dict[str, Any]:
+def evaluate_model(model_dir: str, tokenized_dir: str, length_test_df: int) -> Dict[str, Any]:
     """
     Evaluate saved HF model on test dataframe and compute metrics.
     """
-    print(f"[eval] Evaluating model at '{model_dir}' on {len(test_df)} rows")
+    print(f"[eval] Evaluating model at '{model_dir}' on {length_test_df} rows")
 
     # Load the model and the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_dir)

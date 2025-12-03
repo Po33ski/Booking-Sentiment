@@ -12,8 +12,8 @@ def load_raw_dataset(cfg: DatasetConfig) -> Tuple[pd.Series, pd.Series, pd.DataF
     """
     Load booking reviews dataset from HuggingFace and return positive/negative Series.
     """
-    print(f"[ingest] Loading dataset '{cfg.dataset_name}' split='{cfg.split}'")
-    df_raw = load_dataset(cfg.dataset_name)[cfg.split].to_pandas()
+    print(f"[ingest] Loading dataset '{cfg.dataset_name}'")
+    df_raw = load_dataset(cfg.dataset_name)["train"].to_pandas()
     # extract negative and positive reviews from the dataset
     #negative_col is the column name for the negative reviews
     df_neg = df_raw[cfg.negative_col].astype(str).str.strip()

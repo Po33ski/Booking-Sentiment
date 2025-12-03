@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import random
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -20,6 +19,7 @@ from transformers import (
 )
 
 from .config import TrainConfig, PathsConfig
+from .runtime import configure_runtime
 
 
 def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, tokenizer) -> DatasetDict:
@@ -45,14 +45,7 @@ def train_hf(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFra
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Determinism settings
-    os.environ["PYTHONHASHSEED"] = str(train_cfg.seed)
-    random.seed(train_cfg.seed)
-    np.random.seed(train_cfg.seed)
-    if train_cfg.device == "cuda":
-        torch.manual_seed(train_cfg.seed)
-        torch.cuda.manual_seed_all(train_cfg.seed)
-    else:
-        torch.manual_seed(train_cfg.seed)
+    configure_runtime(train_cfg.seed, train_cfg.device)
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     # Load tokenizer and datasets    

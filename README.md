@@ -32,7 +32,7 @@ To rerun individual stages, replace the final command with the specific subcomma
 4. **Fine-tuning** – train `distilbert/distilbert-base-uncased` plus a classification head via Hugging Face `Trainer`. The default run uses 5 epochs (adjust based on `sample_size`). Evaluation metrics are computed immediately afterward; see the Metrics section for details.
 5. **Behavioral testing** – leverage [Giskard](https://github.com/Giskard-AI/giskard) to probe robustness, unfairness, and sensitivity through slicing and input perturbations. Because Giskard needs raw text, the embedding computation happens inside the prediction function, which reuses the logistic classifier trained above.
 6. **Explainability** – run Captum Integrated Gradients on tokenized samples. The `configure_interpretable_embedding_layer()` hook swaps in Captum’s embedding tracker, while a thin wrapper passes `attention_mask` through the model. We then visualize token attributions. For more explanation see the Interpretability Example section.
-7. **Inference** - run the saved fine-tuned model for inference. User can enter a command and see how it will be classified.
+7. **Inference** - run the saved fine-tuned model for inference. User can enter a command and see how it will be classified, and exit the loop any time by typing `quit` or `q`.
 
 ## Features
 - **Data ingest & preview** – pull raw Booking.com positives/negatives from Hugging Face and persist quick-look parquet artefacts.

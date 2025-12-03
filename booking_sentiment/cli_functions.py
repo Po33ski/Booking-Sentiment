@@ -4,9 +4,6 @@ import shutil
 from sklearn.utils import resample
 import pandas as pd
 import typer
-import torch
-from torch.nn.functional import softmax
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from .config import ProjectConfig
 from .data_ingest import load_raw_dataset
@@ -17,6 +14,7 @@ from .train_hf import train_hf
 from .evaluate import evaluate_model
 from .behavioral import run_giskard_scan
 from .explain import explain_samples
+from .inference import load_sentiment_classifier
 
 
 
@@ -126,7 +124,7 @@ def run_evaluate(cfg: ProjectConfig) -> None:
     test_df = pd.read_parquet(splits_dir / "test.parquet")
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
     tokenized_dir = cfg.paths.artifacts_dir / "tokenized"
-    metrics = evaluate_model(model_dir, tokenized_dir, test_df)
+    metrics = evaluate_model(model_dir, tokenized_dir, len(test_df))
     out = cfg.paths.artifacts_dir / "metrics.json"
     import json as _json
 
@@ -161,10 +159,10 @@ def run_scan(cfg: ProjectConfig) -> None:
     run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
     typer.echo(f"[scan] Giskard scan saved to: {out}")
 
-# inference: prompt for a single review and classify it with the fine-tuned model
+# inference: prompt for reviews and classify them with the fine-tuned model
 def run_inference(cfg: ProjectConfig) -> None:
     """
-    Prompt for a single review and classify it with the fine-tuned model.
+    Interactive inference loop that keeps accepting inputs until the user quits.
     """
     ensure_dirs(cfg)
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
@@ -172,28 +170,20 @@ def run_inference(cfg: ProjectConfig) -> None:
         typer.echo("[inference] 'finetuned_model' not found. Run 'uv run train' first.")
         raise typer.Exit(code=1)
 
-    text = typer.prompt("Enter a comment to classify").strip()
-    if not text:
-        typer.echo("[inference] No comment provided – exiting.")
-        raise typer.Exit(code=1)
+    classifier = load_sentiment_classifier(model_dir)
+    typer.echo("[inference] Type a review to classify (q/quit to exit).")
 
-    tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
-    model = AutoModelForSequenceClassification.from_pretrained(str(model_dir))
-    model.eval() # set the model to evaluation mode
+    while True:
+        text = typer.prompt("Enter a comment").strip()
+        if text.lower() in {"q", "quit"}:
+            typer.echo("[inference] Exiting inference loop.")
+            break
+        if not text:
+            typer.echo("[inference] Empty input. Provide text or type 'quit'.")
+            continue
 
-    encoded = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        padding=True,
-        max_length=512,
-    )
-    with torch.no_grad():
-        logits = model(**encoded).logits
-        prob_pos = softmax(logits, dim=1)[0, 1].item()
-
-    label = "positive" if prob_pos >= 0.5 else "negative"
-    typer.echo(f"[inference] Result: {label} (P(pos)={prob_pos:.3f})")
+        label, prob_pos = classifier.predict(text)
+        typer.echo(f"[inference] Result: {label} (P(pos)={prob_pos:.3f})")
 
 # purge: purge the artifacts directory
 def run_purge(cfg: ProjectConfig) -> None:

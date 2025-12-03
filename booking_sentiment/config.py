@@ -9,10 +9,13 @@ from pydantic import BaseModel, Field, ValidationError
 # DatasetConfig: Configuration for the dataset
 class DatasetConfig(BaseModel):
     dataset_name: str = Field(default="morgul10/booking_reviews")
-    split: str = Field(default="train")
+    # positive_col: name of the positive column from the dataset
     positive_col: str = Field(default="Positive_Review")
+    # negative_col: name of the negative column from the dataset
     negative_col: str = Field(default="Negative_Review")
-    sample_size: Optional[int] = Field(default=5000, ge=1)
+    # sample_size: number of samples to use for the dataset
+    sample_size: Optional[int] = Field(default=10000, ge=1)
+    # random_state: random state to use for the dataset
     random_state: int = Field(default=0)
 
 # CleaningConfig: Configuration for the cleaning like removing terms, casefolding, deduplication, etc.
@@ -67,6 +70,7 @@ class QualityConfig(BaseModel):
     embedding_model_name: str = Field(default="all-MiniLM-L6-v2")
     cv_folds: int = Field(default=5, ge=2)
     regularization_c: float = Field(default=0.1, gt=0.0)
+    # device: device to use for the embedding model
     device: str = Field(default="cuda")
     label_issue_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     max_label_fixes: Optional[int] = Field(default=None, ge=1)
