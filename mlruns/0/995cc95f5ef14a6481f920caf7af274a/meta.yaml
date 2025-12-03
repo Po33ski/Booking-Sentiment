@@ -1,0 +1,14 @@
+artifact_uri: file:///home/jarek/Projects/Booking-sentiment/mlruns/0/995cc95f5ef14a6481f920caf7af274a/artifacts
+end_time: 1764785778604
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 995cc95f5ef14a6481f920caf7af274a
+run_name: overjoyed-slug-911
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1764785668466
+status: 3
+tags: []
+user_id: jarek

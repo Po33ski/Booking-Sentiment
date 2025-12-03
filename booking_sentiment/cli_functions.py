@@ -6,15 +6,15 @@ import pandas as pd
 import typer
 
 from .config import ProjectConfig
-from .data_ingest import load_raw_dataset
-from .data_clean import clean_and_label
-from .quality import run_cleanlab
-from .splits import split_dataframe
-from .train_hf import train_hf
-from .evaluate import evaluate_model
-from .behavioral import run_giskard_scan
-from .explain import explain_samples
-from .inference import load_sentiment_classifier
+from .tools.data_ingest import load_raw_dataset
+from .tools.data_clean import clean_and_label
+from .tools.quality import run_cleanlab
+from .tools.splits import split_dataframe
+from .tools.train import train
+from .tools.evaluate import evaluate_model
+from .tools.behavioral import run_giskard_scan
+from .tools.explain import explain_samples
+from .tools.inference import load_sentiment_classifier
 
 
 
@@ -111,7 +111,7 @@ def run_train(cfg: ProjectConfig) -> None:
     train_df = pd.read_parquet(splits_dir / "train.parquet")
     valid_df = pd.read_parquet(splits_dir / "valid.parquet")
     test_df = pd.read_parquet(splits_dir / "test.parquet")
-    model_dir, _ = train_hf(train_df, valid_df, test_df, cfg.train, cfg.paths)
+    model_dir, _ = train(train_df, valid_df, test_df, cfg.train, cfg.paths)
     typer.echo(f"[train] Model artifact at: {model_dir}")
 
 # evaluate: evaluate the model on the test set
