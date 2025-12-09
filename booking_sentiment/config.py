@@ -44,6 +44,7 @@ class CleaningConfig(BaseModel):
     # lowercase_text: lowercase the text
     lowercase_text: bool = Field(default=True)
 
+
 # SplitConfig: Configuration for the split
 class SplitConfig(BaseModel):
     train_frac: float = Field(default=0.6, ge=0.0, le=1.0)
@@ -74,6 +75,9 @@ class QualityConfig(BaseModel):
     device: str = Field(default="cuda")
     label_issue_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     max_label_fixes: Optional[int] = Field(default=None, ge=1)
+    # iterations: number of iterations to use for the cleaning
+    iterations: int = Field(default=3, ge=1)
+    
 # PathsConfig: Configuration for the paths like artifacts dir, etc.
 class PathsConfig(BaseModel):
     artifacts_dir: Path = Field(default=Path("artifacts"))

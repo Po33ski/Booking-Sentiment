@@ -72,7 +72,9 @@ def run_quality(cfg: ProjectConfig) -> None:
             stratify=df_clean["label"],
         )
         df_clean = df_clean.reset_index(drop=True)
-    df_fixed = run_cleanlab(df_clean, cfg.quality)
+    for i in range(cfg.quality.iterations):
+        df_fixed = run_cleanlab(df_clean, cfg.quality)
+        typer.echo(f"[quality] Iteration {i+1} completed")
     out = cfg.paths.artifacts_dir / "quality_fixed.parquet"
     df_fixed.to_parquet(out, index=False)
     typer.echo(f"[quality] Quality output saved to: {out}")

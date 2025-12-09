@@ -102,6 +102,25 @@ uv run booking-sentiment inference --config configs/quick.json
 
 ```
 
+## Docker Usage
+Build the container from the repo root when you need an isolated environment (local machine, server, or cloud runner):
+
+```bash
+docker build -t booking-sentiment-cli .
+```
+
+The entrypoint exposes the Typer CLI. Mount a persistent directory to `/app/artifacts` so that models, parquet splits, and other outputs have enough disk space and survive container restarts:
+
+```bash
+# show CLI help
+docker run --rm -it -v "$(pwd)/artifacts:/app/artifacts" booking-sentiment-cli --help
+
+# run the full pipeline
+docker run --rm -it -v "$(pwd)/artifacts:/app/artifacts" booking-sentiment-cli all --config configs/quick.json
+```
+
+In managed environments (Cloud Run, ECS, etc.) attach a persistent volume or sufficiently large disk to `/app/artifacts` to avoid running out of space during training.
+
 Core commands (executed in order during `all`):
 1. `load` – download dataset and save raw/neg/pos previews.
 2. `clean` – output `artifacts/clean.parquet`.

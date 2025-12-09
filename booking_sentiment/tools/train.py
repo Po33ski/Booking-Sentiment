@@ -16,11 +16,50 @@ from transformers import (
     EvalPrediction,
     Trainer,
     TrainingArguments,
+    TrainerCallback,
 )
+import matplotlib.pyplot as plt
 
 from ..config import TrainConfig, PathsConfig
 from ..runtime import configure_runtime
 
+class _LivePlotCallback(TrainerCallback):
+        """
+        Lightweight live plotting of training/eval loss in a separate Matplotlib window.
+        Kept minimal: only depends on 'loss' and 'eval_loss' entries emitted by HF Trainer.
+        """
+
+        def __init__(self) -> None:
+            plt.ion()
+            self.fig, self.ax = plt.subplots()
+            self.train_points = []
+            self.eval_points = []
+
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            if logs is None:
+                return
+            step = state.global_step
+            if "loss" in logs:
+                self.train_points.append((step, logs["loss"]))
+            if "eval_loss" in logs:
+                self.eval_points.append((step, logs["eval_loss"]))
+            if not self.train_points and not self.eval_points:
+                return
+
+            self.ax.clear()
+            if self.train_points:
+                steps, losses = zip(*self.train_points)
+                self.ax.plot(steps, losses, label="train_loss")
+            if self.eval_points:
+                steps, losses = zip(*self.eval_points)
+                self.ax.plot(steps, losses, label="eval_loss")
+            self.ax.set_xlabel("global_step")
+            self.ax.set_ylabel("loss")
+            self.ax.legend()
+            self.ax.set_title("Training progress")
+            self.fig.canvas.draw()
+            # small pause keeps the window responsive
+            plt.pause(0.01)
 
 def _build_datasets(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame, tokenizer) -> DatasetDict:
     ds = DatasetDict()
@@ -79,6 +118,8 @@ def train(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame,
         use_cpu= train_cfg.device == "cpu"
     )
 
+    live_plot_cb = _LivePlotCallback()
+
     # Create the trainer
     trainer = Trainer(
         model=model,
@@ -87,6 +128,7 @@ def train(train_df: pd.DataFrame, valid_df: pd.DataFrame, test_df: pd.DataFrame,
         eval_dataset=datasets_tokenized["valid"],
         tokenizer=tokenizer,
         compute_metrics=compute_metrics,
+        callbacks=[live_plot_cb],
     )
     # Train the model
     trainer.train()
