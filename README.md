@@ -29,7 +29,7 @@ To rerun individual stages, replace the final command with the specific subcomma
 1. **Data hygiene** – drop duplicate rows and empty strings with Pandas safeguards.
 2. **Cleanlab quality pass** – convert texts to embeddings with `all-MiniLM-L6-v2`, fit a logistic regression (`sklearn.linear_model.LogisticRegression`, regularized via `cfg.regularization_c`) using cross-validation (`cv_folds`), and use the resulting probabilities to flag label issues, outliers, and near duplicates. The demo applies automatic relabeling/deduplication, though manual review is encouraged in production.
 3. **Splitting** – create train/validation/test subsets (default 0.6/0.1/0.3, editable in the JSON config) with optional stratification and sampling.
-4. **Fine-tuning** – train `distilbert/distilbert-base-uncased` plus a classification head via Hugging Face `Trainer`. The default run uses 5 epochs (adjust based on `sample_size`). Evaluation metrics are computed immediately afterward; see the Metrics section for details.
+4. **Fine-tuning** – fine-tune `distilbert/distilbert-base-uncased` plus a classification head via Hugging Face `Trainer`. The default run uses 5 epochs (adjust based on `sample_size`). Evaluation metrics are computed immediately afterward; see the Metrics section for details.
 5. **Behavioral testing** – leverage [Giskard](https://github.com/Giskard-AI/giskard) to probe robustness, unfairness, and sensitivity through slicing and input perturbations. Because Giskard needs raw text, the embedding computation happens inside the prediction function, which reuses the logistic classifier trained above.
 6. **Explainability** – run Captum Integrated Gradients on tokenized samples. The `configure_interpretable_embedding_layer()` hook swaps in Captum’s embedding tracker, while a thin wrapper passes `attention_mask` through the model. We then visualize token attributions. For more explanation see the Interpretability Example section.
 7. **Inference** - run the saved fine-tuned model for inference. User can enter a command and see how it will be classified, and exit the loop any time by typing `quit` or `q`.
@@ -52,6 +52,9 @@ F1-score: a harmonic mean of precision and recall, aggregates them into one numb
 Harmonic mean heavily penalizes small numbers, so to get high value, both precision and recall have to be high, not just one of those. 
 Area Under Receiver Operating Characteristic (AUROC / ROC AUC): is less frequently used in NLP, but has a few beneficial properties. It takes into consideration model probability predictions. For different thresholds (percentage above which we assume positive class) we measure the fractions of true positives and false positives, and aggregate those numbers. To achieve high AUROC, the model has to predict the right class with high probability, and avoid false positives even for low thresholds.
 Matthews Correlation Coefficient (MCC): can be thought of as Pearson correlation, but for binary variables. It has favorable statistical properties, and can spot model failures even when accuracy or AUROC are high. 
+
+## MLFlow:
+The project is instrumented with Hugging Face's built‑in MLflow integration. When you run fine‑tuning, the `Trainer` automatically starts an MLflow run and logs hyperparameters, metrics (including MCC), and useful metadata. By default, these runs are stored locally under the `mlruns/` directory, which acts as MLflow's file‑based tracking backend. You can point MLflow to a different tracking URI if you want to use a central tracking server instead of the local `mlruns/` folder.
 
 ## Interpretability Example
 During the `explain` step we run Captum Integrated Gradients to see which tokens push the model toward a positive vs. negative prediction. Each TSV under `artifacts/explain/` contains the original text plus per-token attribution scores. A snapshot:
@@ -126,7 +129,7 @@ Core commands (executed in order during `all`):
 2. `clean` – output `artifacts/clean.parquet`.
 3. `quality` – run Cleanlab, optional label fixes, drop flagged outliers → `quality_fixed.parquet`.
 4. `split` – create stratified parquet splits under `artifacts/splits/`.
-5. `train` – fine-tune DistilBERT, save to `artifacts/finetuned_model` and tokenized datasets.
+5. `tune` – fine-tune DistilBERT, save to `artifacts/finetuned_model` and tokenized datasets.
 6. `evaluate` – compute Precision/Recall/F1/AUROC/MCC and list difficult samples + write `metrics.json`.
 7. `scan` – run Giskard safety scan.
 8. `explain` – Captum Integrated Gradients for sampled test reviews → TSV files.
@@ -137,7 +140,7 @@ Core commands (executed in order during `all`):
 - `dataset.sample_size` – subsample before quality/split (set `null` for full set).
 - `cleaning` – remove boilerplate terms, enforce min length, case folding.
 - `split` – fractions must sum to 1; `stratify` preserves class balance.
-- `train` – `model_name`, `learning_rate`, `epochs`, `device`.
+- `tune` – `model_name`, `learning_rate`, `epochs`, `device`.
 - `quality` – `embedding_model_name`, `cv_folds`, `regularization_c`, plus thresholds `label_issue_threshold` / `max_label_fixes` for safer automatic relabeling.
 - `paths.artifacts_dir` – default `artifacts/`.
 

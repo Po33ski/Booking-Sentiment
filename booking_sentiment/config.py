@@ -59,7 +59,7 @@ class SplitConfig(BaseModel):
             raise ValueError("train_frac + valid_frac + test_frac must equal 1.0")
 
 # TrainConfig: Configuration for the training like model name, learning rate, epochs, seed, use_cpu, etc.
-class TrainConfig(BaseModel):
+class FineTuneConfig(BaseModel):
     model_name: str = Field(default="distilbert/distilbert-base-uncased")
     learning_rate: float = Field(default=1e-4, gt=0.0)
     epochs: int = Field(default=5, ge=1)
@@ -80,12 +80,12 @@ class QualityConfig(BaseModel):
 class PathsConfig(BaseModel):
     artifacts_dir: Path = Field(default=Path("artifacts"))
 
-# ProjectConfig: Configuration for the project like dataset, cleaning, split, train, quality, paths, etc.
+# ProjectConfig: Configuration for the project like dataset, cleaning, split, fine_tune, quality, paths, etc.
 class ProjectConfig(BaseModel):
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     cleaning: CleaningConfig = Field(default_factory=CleaningConfig)
     split: SplitConfig = Field(default_factory=SplitConfig)
-    train: TrainConfig = Field(default_factory=TrainConfig)
+    fine_tune: FineTuneConfig = Field(default_factory=FineTuneConfig)
     quality: QualityConfig = Field(default_factory=QualityConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
 

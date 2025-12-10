@@ -10,7 +10,7 @@ from .cli_functions import (
     run_clean,
     run_quality,
     run_split,
-    run_train,
+    run_fine_tune,
     run_evaluate,
     run_inference,
     run_explain,
@@ -24,7 +24,7 @@ app = typer.Typer(add_completion=False, help="Booking Sentiment - MLOps-friendly
 # Shared helper to hydrate config and apply deterministic settings
 def _load_config(config_path: Optional[str]) -> ProjectConfig:
     cfg = ProjectConfig.load(config_path)
-    configure_runtime(cfg.train.seed, cfg.train.device)
+    configure_runtime(cfg.fine_tune.seed, cfg.fine_tune.device)
     return cfg
 
 
@@ -52,11 +52,11 @@ def split(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = _load_config(config)
     run_split(cfg)
 
-# train: train the model on the train and validation sets
-@app.command(name="train")
-def train_cmd(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
+# tune: fine-tune the model on the train and validation sets
+@app.command(name="tune")
+def fine_tune(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
     cfg = _load_config(config)
-    run_train(cfg)
+    run_fine_tune(cfg)
 
 # evaluate: evaluate the model on the test set
 @app.command()
@@ -102,11 +102,10 @@ def all(config: Optional[str] = typer.Option(None, "--config", "-c")) -> None:
         run_clean,
         run_quality,
         run_split,
-        run_train,
+        run_fine_tune,
         run_evaluate,
-        run_scan,
         run_explain,
-        run_inference,
+        run_scan,
     )
     for step in steps:
         step(cfg)

@@ -10,12 +10,11 @@ from .tools.data_ingest import load_raw_dataset
 from .tools.data_clean import clean_and_label
 from .tools.quality import run_cleanlab
 from .tools.splits import split_dataframe
-from .tools.train import train
+from .tools.fine_tune import fine_tune
 from .tools.evaluate import evaluate_model
 from .tools.behavioral import run_giskard_scan
 from .tools.explain import explain_samples
 from .tools.inference import load_sentiment_classifier
-
 
 
 
@@ -115,18 +114,18 @@ def run_split(cfg: ProjectConfig) -> None:
     typer.echo("[split] Saved splits to artifacts/splits")
 
 
-# train: train the model on the train and validation sets
-def run_train(cfg: ProjectConfig) -> None:
+# tune: fine-tune the model on the train and validation sets
+def run_fine_tune(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     splits_dir = cfg.paths.artifacts_dir / "splits"
     if not (splits_dir / "train.parquet").exists():
-        typer.echo("[train] Splits not found. Run 'uv run split' first.")
+        typer.echo("[tune] Splits not found. Run 'uv run split' first.")
         raise typer.Exit(code=1)
     train_df = pd.read_parquet(splits_dir / "train.parquet")
     valid_df = pd.read_parquet(splits_dir / "valid.parquet")
     test_df = pd.read_parquet(splits_dir / "test.parquet")
-    model_dir, _ = train(train_df, valid_df, test_df, cfg.train, cfg.paths)
-    typer.echo(f"[train] Model artifact at: {model_dir}")
+    model_dir, _ = fine_tune(train_df, valid_df, test_df, cfg.fine_tune, cfg.paths)
+    typer.echo(f"[tune] Model artifact at: {model_dir}")
 
 # evaluate: evaluate the model on the test set
 def run_evaluate(cfg: ProjectConfig) -> None:
