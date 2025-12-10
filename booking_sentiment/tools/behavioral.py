@@ -49,7 +49,7 @@ def run_giskard_scan(model_dir: Path, test_df: pd.DataFrame, device: str = "cuda
         feature_names=["text"],
     )
     # Scan the test set using the Giskard model
-    results = scan(giskard_model, giskard_dataset, verbose=False)
+    results = scan(giskard_model, giskard_dataset, verbose=True)
     print(results)
     results_md = results.to_markdown()
     # Save the results to a file

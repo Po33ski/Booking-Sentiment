@@ -73,8 +73,6 @@ class QualityConfig(BaseModel):
     regularization_c: float = Field(default=0.1, gt=0.0)
     # device: device to use for the embedding model
     device: str = Field(default="cuda")
-    label_issue_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    max_label_fixes: Optional[int] = Field(default=None, ge=1)
     # iterations: number of iterations to use for the cleaning
     iterations: int = Field(default=3, ge=1)
     

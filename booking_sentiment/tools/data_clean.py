@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import typer
 from typing import Tuple
 
 import pandas as pd
@@ -20,7 +21,7 @@ def clean_and_label(df_neg: pd.DataFrame, df_pos: pd.DataFrame, cfg: CleaningCon
     Apply simple cleaning rules and return a unified dataframe with columns: text, label.
     label=0 -> negative, label=1 -> positive
     """
-    print("[clean] Cleaning texts and building labeled dataframe")
+    typer.echo("[clean] Cleaning texts and building labeled dataframe")
     remove_re = remove_terms_regex(cfg.remove_terms)
     # remove the terms from the negative and positive reviews
     neg_f = df_neg[~df_neg.str.contains(remove_re, case=False, na=True, regex=True)]
@@ -37,8 +38,8 @@ def clean_and_label(df_neg: pd.DataFrame, df_pos: pd.DataFrame, cfg: CleaningCon
     df_neg_f["label"] = 0
     df_pos_f["label"] = 1
 
-    print("Negative samples after filtering:", len(df_neg_f))
-    print("Positive samples after filtering:", len(df_pos_f))
+    typer.echo(f"[clean] Negative samples after filtering: {len(df_neg_f)}")
+    typer.echo(f"[clean] Positive samples after filtering: {len(df_pos_f)}")
 
     # concatenate the negative and positive reviews and drop duplicates
     df_all = pd.concat([df_neg_f, df_pos_f], ignore_index=True)
@@ -51,7 +52,7 @@ def clean_and_label(df_neg: pd.DataFrame, df_pos: pd.DataFrame, cfg: CleaningCon
 
 
 
-    print(f"[clean] Final rows: {len(df_all)}")
+    typer.echo(f"[clean] Final rows: {len(df_all)}")
     return df_all
 
 

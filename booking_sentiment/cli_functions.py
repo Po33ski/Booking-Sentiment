@@ -38,7 +38,7 @@ def run_load(cfg: ProjectConfig) -> None:
     typer.echo(f"[load] Preview saved to: {out_raw}, {out_neg}, {out_pos}")
 
 
-# clean: clean the raw dataset and return a dataframe with columns: text, label
+# clean: clean the raw dataset and save as parquet file with columns: text, label
 def run_clean(cfg: ProjectConfig) -> None:
     ensure_dirs(cfg)
     in_neg = cfg.paths.artifacts_dir / "neg_preview.parquet"
@@ -72,12 +72,24 @@ def run_quality(cfg: ProjectConfig) -> None:
             stratify=df_clean["label"],
         )
         df_clean = df_clean.reset_index(drop=True)
-    for i in range(cfg.quality.iterations):
-        df_fixed = run_cleanlab(df_clean, cfg.quality)
-        typer.echo(f"[quality] Iteration {i+1} completed")
-    out = cfg.paths.artifacts_dir / "quality_fixed.parquet"
-    df_fixed.to_parquet(out, index=False)
-    typer.echo(f"[quality] Quality output saved to: {out}")
+    # Run CleanLab on the cleaned dataframe for as many iterations as specified in the config.
+    # All iterations are handled internally by the QualityInterface.
+    df_fixed, description = run_cleanlab(
+        df_clean.copy(),
+        cfg.quality,
+    )
+    typer.echo(f"[quality] Completed {cfg.quality.iterations} quality iteration(s).")
+    out_fixed = cfg.paths.artifacts_dir / "quality_fixed.parquet"
+    df_fixed.to_parquet(out_fixed, index=False)
+    typer.echo(f"[quality] Quality output saved to: {out_fixed}")
+
+    # Save the aggregated quality logs as markdown in a separate folder.
+    quality_logs_dir = cfg.paths.artifacts_dir / "quality_logs"
+    quality_logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = quality_logs_dir / "quality_log.md"
+    log_markdown = "# CleanLab data quality report\n\n" + description
+    log_path.write_text(log_markdown, encoding="utf-8")
+    typer.echo(f"[quality] Quality log saved to: {log_path}")
 
 
 # split: split the dataframe into train, validation and test sets

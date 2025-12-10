@@ -3,7 +3,7 @@
   "cleaning": { "casefold_dedup": true, "min_text_len": 1, "lowercase_text": true },
   "split": { "train_frac": 0.6, "valid_frac": 0.1, "test_frac": 0.3, "random_state": 0, "stratify": true },
   "train": { "model_name": "distilbert/distilbert-base-uncased", "learning_rate": 0.0001, "epochs": 5, "device": "cuda" },
-  "quality": { "embedding_model_name": "all-MiniLM-L6-v2", "cv_folds": 6, "regularization_c": 0.15, "device": "cuda", "label_issue_threshold": 0.3, "max_label_fixes": 100 },
+  "quality": { "embedding_model_name": "all-MiniLM-L6-v2", "cv_folds": 6, "regularization_c": 0.15, "device": "cuda", "iterations": 3},
   "paths": { "artifacts_dir": "artifacts" }
 }
 
