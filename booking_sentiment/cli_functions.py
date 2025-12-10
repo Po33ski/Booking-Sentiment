@@ -158,7 +158,9 @@ def run_scan(cfg: ProjectConfig) -> None:
     test_df = pd.read_parquet(test_path)
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
     out = cfg.paths.artifacts_dir / "giskard"
-    run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
+    _, results_md = run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
+    typer.echo(f"[scan] Giskard scan completed. Results:")
+    typer.echo(f"[scan] {results_md}")
     typer.echo(f"[scan] Giskard scan saved to: {out}")
 
 # inference: prompt for reviews and classify them with the fine-tuned model

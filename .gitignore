@@ -15,3 +15,4 @@ artifacts/
 .DS_Store
 .data_analyze_instr.md
 .instr.ipynb
+mlruns/
