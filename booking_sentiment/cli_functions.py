@@ -155,7 +155,7 @@ def run_explain(cfg: ProjectConfig) -> None:
     test_df = pd.read_parquet(splits_dir / "test.parquet")
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
     out = cfg.paths.artifacts_dir / "explain"
-    explain_samples(model_dir, test_df, out)
+    explain_samples(model_dir, test_df, out, visualize=True)
     typer.echo(f"[explain] Saved attribution TSVs to: {out}")
 
 
