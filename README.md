@@ -1,7 +1,7 @@
 # Pipeline for classifier model 
 
 
-CLI-first workflow for cleaning, curating, and fine-tuning a DistilBERT classifier on the [`morgul10/booking_reviews`](https://huggingface.co/datasets/morgul10/booking_reviews) dataset. The pipeline bundles data ingest, quality checks (Cleanlab), splitting, training, evaluation, explanation, and Giskard tests into a Typer-based command suite. The goal is to fine-tune DistilBERT with an additional classification head so that it recognise positive and negative booking reviews.
+CLI-first workflow for cleaning, curating, and fine-tuning a DistilBERT classifier on the [`morgul10/booking_reviews`](https://huggingface.co/datasets/morgul10/booking_reviews) dataset. The pipeline bundles data ingest, quality checks (Cleanlab), splitting, training, evaluation, explanation, and Giskard tests into a Typer-based command suite. The goal is to fine-tune DistilBERT or any other model (which is compatible with AutoModelForSequenceClassification for text) from with an additional classification head so that it recognise positive and negative booking reviews.
 
 ### Quick Run
 Prerequisites (before cloning):
@@ -43,6 +43,25 @@ To rerun individual stages, replace the final command with the specific subcomma
 - **Evaluation & debugging** – metrics plus top False Positives/Negatives and most uncertain predictions.
 - **Explainability & scans** – Captum-based token attributions and optional Giskard safety scan.
 - **Interactive inference** – reuse the fine-tuned checkpoint to classify ad-hoc reviews from the CLI and inspect probabilities.
+
+## Models
+
+By default the pipeline fine‑tunes `distilbert/distilbert-base-uncased`, but it is designed to work with **any Hugging Face checkpoint that is compatible with `AutoModelForSequenceClassification` for text**.
+
+- **Supported model families (examples)**  
+  - BERT: `bert-base-uncased`, `bert-base-multilingual-cased`, `distilbert-base-uncased`  
+  - RoBERTa: `roberta-base`, `distilroberta-base`  
+  - XLM-R: `xlm-roberta-base`  
+  - Other encoder-style text models that work with `AutoModelForSequenceClassification`
+
+- **How it works**  
+  The fine‑tuning code always loads the model via:
+  `AutoModelForSequenceClassification.from_pretrained(cfg.model_name, num_labels=2)`.  
+  For any text encoder supported by this API, Transformers automatically attaches a 2‑class classification head, so you can switch architectures by changing only `tune.model_name` in the JSON config.
+
+- **What is not supported out of the box**  
+  - Non‑text models (e.g. ViT, CLIP, Whisper, image/audio models).  
+  - Seq2seq generative models (e.g. T5, BART) unless you adapt the code to use `AutoModelForSeq2SeqLM` and a different training/evaluation loop.
 
 
 ## Metrics
