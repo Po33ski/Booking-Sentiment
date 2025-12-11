@@ -22,8 +22,14 @@ uv sync
 # 3. Run the entire pipeline with the quick config
 uv run booking-sentiment all --config configs/quick.json
 ```
+### Jupyter Notebook
 
-To rerun individual stages, replace the final command with the specific subcommand (e.g., `load`, `clean`, `train`, `evaluate`, `inference`, etc.). See more in the Running the Pipeline section.
+The notebook presents the entire pipeline in a simple way, without the extra CLI / classes ect.  
+It includes slightly fewer features than the full CLI pipeline, but also a few steps that were added specifically for the notebook.  
+The notebook is easy to run if you have suitable hardware: you can start it locally after running `uv sync` and selecting the UV environment as the kernel,  
+or (often more simply) you can open it directly in Google Colab: [`https://colab.research.google.com/`](https://colab.research.google.com/).
+
+To rerun individual CLI stages instead of the full pipeline, replace the final command with the specific subcommand (e.g., `load`, `clean`, `train`, `evaluate`, `inference`, etc.). See more in the Running the Pipeline section.
 
 ### Processing Steps
 1. **Data hygiene** – drop duplicate rows and empty strings with Pandas safeguards.

@@ -1,7 +1,5 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 *.log
 *.tmp
 .ipynb_checkpoints/
@@ -11,8 +9,9 @@ venv/
 .artifacts/
 artifacts/
 .mlruns/
+mlruns/
 *.parquet
 .DS_Store
 .data_analyze_instr.md
 .instr.ipynb
-mlruns/
+finetuned_model/
