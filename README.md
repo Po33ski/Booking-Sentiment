@@ -78,8 +78,6 @@ Harmonic mean heavily penalizes small numbers, so to get high value, both precis
 Area Under Receiver Operating Characteristic (AUROC / ROC AUC): is less frequently used in NLP, but has a few beneficial properties. It takes into consideration model probability predictions. For different thresholds (percentage above which we assume positive class) we measure the fractions of true positives and false positives, and aggregate those numbers. To achieve high AUROC, the model has to predict the right class with high probability, and avoid false positives even for low thresholds.
 Matthews Correlation Coefficient (MCC): can be thought of as Pearson correlation, but for binary variables. It has favorable statistical properties, and can spot model failures even when accuracy or AUROC are high. 
 
-## MLFlow:
-The project is instrumented with Hugging Face's built‑in MLflow integration. When you run fine‑tuning, the `Trainer` automatically starts an MLflow run and logs hyperparameters, metrics (including MCC), and useful metadata. By default, these runs are stored locally under the `mlruns/` directory, which acts as MLflow's file‑based tracking backend. You can point MLflow to a different tracking URI if you want to use a central tracking server instead of the local `mlruns/` folder.
 
 ## Interpretability Example
 During the `explain` step we run Captum Integrated Gradients to see which tokens push the model toward a positive vs. negative prediction. Each TSV under `artifacts/explain/` contains the original text plus per-token attribution scores. A snapshot:
