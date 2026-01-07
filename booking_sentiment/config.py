@@ -67,14 +67,14 @@ class FineTuneConfig(BaseModel):
     device: str = Field(default="cuda") # "cuda" or "cpu"
 
 # QualityConfig: Configuration for the quality like embedding model name, cv folds, logistic c, etc.
-class QualityConfig(BaseModel):
+class QualityConfig(BaseModel): 
     embedding_model_name: str = Field(default="all-MiniLM-L6-v2")
     cv_folds: int = Field(default=5, ge=2)
     regularization_c: float = Field(default=0.1, gt=0.0)
     # device: device to use for the embedding model
     device: str = Field(default="cuda")
     # iterations: number of iterations to use for the cleaning
-    iterations: int = Field(default=3, ge=1)
+    iterations: int = Field(default=1, ge=1)
     
 # PathsConfig: Configuration for the paths like artifacts dir, etc.
 class PathsConfig(BaseModel):
