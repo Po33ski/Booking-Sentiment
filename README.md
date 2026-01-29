@@ -71,16 +71,17 @@ By default the pipeline fine‑tunes `distilbert/distilbert-base-uncased`, but i
 
 
 ## Metrics
-Precision: if the model predicts the positive class, precision measures how sure we can be that it's really the positive class. High precision means low fraction of false positives (FP).
-Recall: measures how much of the positive class the model detected. High recall means low fraction of false negatives (FN).
-F1-score: a harmonic mean of precision and recall, aggregates them into one number for convenience. 
-Harmonic mean heavily penalizes small numbers, so to get high value, both precision and recall have to be high, not just one of those. 
-Area Under Receiver Operating Characteristic (AUROC / ROC AUC): is less frequently used in NLP, but has a few beneficial properties. It takes into consideration model probability predictions. For different thresholds (percentage above which we assume positive class) we measure the fractions of true positives and false positives, and aggregate those numbers. To achieve high AUROC, the model has to predict the right class with high probability, and avoid false positives even for low thresholds.
-Matthews Correlation Coefficient (MCC): can be thought of as Pearson correlation, but for binary variables. It has favorable statistical properties, and can spot model failures even when accuracy or AUROC are high. 
+
+- **Precision**: when the model predicts the positive class, precision measures how often this prediction is actually correct. High precision means a low fraction of false positives (FP).
+- **Recall**: measures how much of the truly positive class the model manages to detect. High recall means a low fraction of false negatives (FN).
+- **F1-score**: the harmonic mean of precision and recall, combining both metrics into a single number.  
+  Because it is a harmonic mean, F1 heavily penalizes low values – to obtain a high F1, **both** precision and recall must be high.
+- **Area Under Receiver Operating Characteristic (AUROC / ROC AUC)**: less common in NLP, but with several useful properties. It takes predicted probabilities into account and evaluates the model across many thresholds (how high the positive-class probability must be to call a sample positive). For each threshold we compute the fractions of true positives and false positives and then aggregate them. High AUROC means the model assigns high probabilities to correct classes and avoids false positives even for low thresholds.
+- **Matthews Correlation Coefficient (MCC)**: can be seen as an analogue of Pearson’s correlation coefficient for binary variables. It has favourable statistical properties and can reveal model failures even when accuracy or AUROC look high.
 
 
 ## Interpretability Example
-During the `explain` step we run Captum Integrated Gradients to see which tokens push the model toward a positive vs. negative prediction. Each TSV under `artifacts/explain/` contains the original text plus per-token attribution scores. A snapshot:
+During the `explain` step we run Captum Integrated Gradients to see which tokens push the model toward a positive vs. negative prediction. Each TSV under `artifacts/explain/` contains the original text plus per‑token attribution scores. A snapshot:
 
 ```
 # true_label  0
@@ -164,7 +165,7 @@ Core commands (executed in order during `all`):
 - `cleaning` – remove boilerplate terms, enforce min length, case folding.
 - `split` – fractions must sum to 1; `stratify` preserves class balance.
 - `tune` – `model_name`, `learning_rate`, `epochs`, `device`.
-- `quality` – `embedding_model_name`, `cv_folds`, `regularization_c`, plus thresholds `label_issue_threshold` / `max_label_fixes` for safer automatic relabeling.
+- `quality` – `embedding_model_name`, `cv_folds`, `regularization_c`, plus thresholds `label_issue_threshold` / `max_label_fixes` for safer aut omatic relabeling.
 - `paths.artifacts_dir` – default `artifacts/`.
 
 ## Outputs
