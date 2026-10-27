@@ -80,6 +80,12 @@ def run_split(cfg: ProjectConfig) -> None:
         stratify=cfg.split.stratify,
     )
     parts = split_dataframe(df_sampled, cfg.split)
+    # Final splits from a previous run no longer match the new split - remove them,
+    # so 'tune' cannot train on stale data before 'quality' is run again.
+    stale_dir = _splits_dir(cfg)
+    if stale_dir.exists():
+        shutil.rmtree(stale_dir)
+        typer.echo(f"[split] Removed outdated final splits: {stale_dir} (run 'quality' next)")
     out_dir = _raw_splits_dir(cfg)
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, part in zip(SPLITS, parts):
@@ -132,7 +138,9 @@ def run_fine_tune(cfg: ProjectConfig) -> None:
     _require(splits_dir / "valid.parquet", "tune", "quality")
     train_df = pd.read_parquet(splits_dir / "train.parquet")
     valid_df = pd.read_parquet(splits_dir / "valid.parquet")
-    model_dir, _ = fine_tune(train_df, valid_df, cfg.fine_tune, cfg.paths)
+    model_dir, _ = fine_tune(
+        train_df, valid_df, cfg.fine_tune, cfg.paths, lowercase=cfg.cleaning.lowercase_text
+    )
     typer.echo(f"[tune] Model artifact at: {model_dir}")
 
 

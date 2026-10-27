@@ -12,7 +12,7 @@ from captum.attr import visualization as viz  # utilities for visualizing attrib
 from torch.nn.functional import softmax
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from .inference import MAX_LENGTH
+from .inference import MAX_LENGTH, load_preprocessing
 
 
 class ExplainSamples:
@@ -139,13 +139,17 @@ class ExplainSamples:
         tokenizer = AutoTokenizer.from_pretrained(str(self.model_dir))
         model = AutoModelForSequenceClassification.from_pretrained(str(self.model_dir))
         model.eval()
+        # Apply the same preprocessing as during training.
+        lowercase = bool(load_preprocessing(self.model_dir).get("lowercase", False))
 
         pos_samples = self.test_df[self.test_df["label"] == 1].head(self.num_pos)
         neg_samples = self.test_df[self.test_df["label"] == 0].head(self.num_neg)
 
         for i, row in enumerate(pd.concat([pos_samples, neg_samples]).itertuples(index=False), start=1):
             text, label = row.text, int(row.label)
-            tokens, attrs, y_pred_proba, y_pred = self._compute_attributions(model, tokenizer, text)
+            tokens, attrs, y_pred_proba, y_pred = self._compute_attributions(
+                model, tokenizer, text.lower() if lowercase else text
+            )
 
             # Save a TSV with a small header and one row per token.
             tsv_path = out_dir / f"sample_{i}.tsv"

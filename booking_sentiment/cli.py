@@ -27,7 +27,11 @@ ConfigOption = typer.Option(None, "--config", "-c", help="Path to JSON config fi
 
 # Shared helper to hydrate config and apply deterministic settings
 def _load_config(config_path: Optional[str]) -> ProjectConfig:
-    cfg = ProjectConfig.load(config_path)
+    try:
+        cfg = ProjectConfig.load(config_path)
+    except (FileNotFoundError, ValueError) as e:  # pydantic's ValidationError is a ValueError
+        typer.echo(f"[config] Invalid configuration: {e}", err=True)
+        raise typer.Exit(code=2)
     configure_runtime(cfg.fine_tune.seed, cfg.fine_tune.device)
     return cfg
 

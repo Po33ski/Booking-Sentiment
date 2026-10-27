@@ -45,3 +45,26 @@ def test_explain_writes_files(tiny_model_dir, tmp_path):
 def test_evaluate_model_metrics(tiny_model_dir):
     metrics = evaluate_model(tiny_model_dir, pd.DataFrame({"text": TEXTS, "label": [1, 0, 1, 0]}))
     assert set(metrics) == {"Precision", "Recall", "F1", "AUROC", "MCC"}
+
+
+def test_inference_applies_training_lowercasing(tiny_model_dir, tmp_path):
+    # A cased tokenizer sees "GREAT" and "great" as different tokens; the classifier must
+    # lowercase inputs when the training data was lowercased (preprocessing.json).
+    import shutil
+
+    from transformers import DistilBertTokenizerFast
+
+    from booking_sentiment.tools.inference import save_preprocessing
+
+    model_dir = tmp_path / "cased_model"
+    shutil.copytree(tiny_model_dir, model_dir)
+    DistilBertTokenizerFast(vocab_file=str(model_dir / "vocab.txt"), do_lower_case=False).save_pretrained(model_dir)
+
+    raw = SentimentClassifier(model_dir)
+    assert raw.predict_proba(["THE ROOM WAS GREAT"])[0] != raw.predict_proba(["the room was great"])[0]
+
+    save_preprocessing(model_dir, lowercase=True)
+    clf = SentimentClassifier(model_dir)
+    np.testing.assert_allclose(
+        clf.predict_proba(["THE ROOM WAS GREAT"]), clf.predict_proba(["the room was great"]), atol=1e-6
+    )

@@ -20,7 +20,7 @@ from transformers import (
 
 from ..config import FineTuneConfig, PathsConfig
 from ..runtime import configure_runtime, resolve_device
-from .inference import MAX_LENGTH
+from .inference import MAX_LENGTH, save_preprocessing
 
 
 def compute_metrics(eval_pred: EvalPrediction) -> dict:
@@ -46,11 +46,13 @@ class FineTuneModel:
         valid_df: pd.DataFrame,  # validation data used for model selection
         fine_tune_cfg: FineTuneConfig,
         paths: PathsConfig,
+        lowercase: bool = False,  # whether the training texts were lowercased by the clean step
     ) -> None:
         self.train_df = train_df
         self.valid_df = valid_df
         self.fine_tune_cfg = fine_tune_cfg
         self.paths = paths
+        self.lowercase = lowercase
 
     def _build_datasets(self, tokenizer) -> DatasetDict:
         """
@@ -78,6 +80,8 @@ class FineTuneModel:
         model_dir = self.paths.artifacts_dir / "finetuned_model"
         # Intermediate checkpoints live outside the model directory and are removed after training.
         checkpoints_dir = self.paths.artifacts_dir / "checkpoints"
+        # Leftovers from an interrupted run would be mixed with the new checkpoints.
+        shutil.rmtree(checkpoints_dir, ignore_errors=True)
 
         configure_runtime(cfg.seed, cfg.device)
         use_cuda = resolve_device(cfg.device) == "cuda"
@@ -128,6 +132,7 @@ class FineTuneModel:
             shutil.rmtree(model_dir)
         trainer.save_model(str(model_dir))
         tokenizer.save_pretrained(str(model_dir))
+        save_preprocessing(model_dir, lowercase=self.lowercase)
         shutil.rmtree(checkpoints_dir, ignore_errors=True)
 
         print(f"[tune] Best validation MCC: {trainer.state.best_metric}")
@@ -139,6 +144,7 @@ def fine_tune(
     valid_df: pd.DataFrame,
     fine_tune_cfg: FineTuneConfig,
     paths: PathsConfig,
+    lowercase: bool = False,
 ) -> Tuple[Path, Dict[str, Any]]:
     """
     Convenience wrapper used by the CLI.
@@ -148,4 +154,5 @@ def fine_tune(
         valid_df=valid_df,
         fine_tune_cfg=fine_tune_cfg,
         paths=paths,
+        lowercase=lowercase,
     ).run()

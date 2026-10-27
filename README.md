@@ -14,7 +14,7 @@ Then run:
 ```bash
 # 1. Clone this repo and enter it
 git clone https://github.com/Po33ski/Booking-Sentiment.git
-cd Booking-sentiment
+cd Booking-Sentiment
 
 # 2. Install Python 3.11 env + dependencies (incl. dev tools: jupyter, pytest, ruff) via uv
 uv sync
@@ -194,7 +194,7 @@ Unknown keys are rejected, so a typo in the config fails fast with a clear error
 - `artifacts/splits_raw/{train,valid,test}.parquet` – splits before the quality step
 - `artifacts/splits/{train,valid,test}.parquet` – final splits used for training and evaluation
 - `artifacts/quality_logs/quality_log.md` – Cleanlab report (which rows were fixed/dropped)
-- `artifacts/finetuned_model/` (model + tokenizer)
+- `artifacts/finetuned_model/` (model + tokenizer + `preprocessing.json`, which tells inference to lowercase inputs when the training texts were lowercased)
 - `artifacts/metrics.json`
 - `artifacts/explain/` (per-sample TSV attributions + HTML visualizations)
 - `artifacts/giskard/giskard_scan.md` (Giskard scan report)
@@ -208,4 +208,5 @@ The tests use a tiny randomly initialised model, so they run in a few seconds wi
 ## Notes
 - Use `uv run booking-sentiment --help` to list commands/options.
 - Cleanlab logs show how many labels were fixed and which rows were dropped; review `quality_log.md` if you prefer manual curation.
-- After modifying configs or cleaning rules, rerun from the relevant step onward (e.g., `split → quality → tune → evaluate`).
+- After modifying configs or cleaning rules, rerun from the relevant step onward (e.g., `split → quality → tune → evaluate`). Running `split` removes the previous final splits, so `quality` has to be run again before `tune`.
+- Training metrics are also logged to MLflow in `./mlruns` (MLflow is installed as a Giskard dependency and the Hugging Face `Trainer` picks it up automatically). Set `DISABLE_MLFLOW_INTEGRATION=TRUE` to turn this off.

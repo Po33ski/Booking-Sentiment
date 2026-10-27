@@ -44,7 +44,7 @@ def test_quality_run_end_to_end(monkeypatch):
     texts = [f"text {i}" for i in range(n)]
     centers = np.where(labels[:, None] == 1, 1.0, -1.0) * np.ones((n, 8))
     emb = centers + rng.normal(scale=0.3, size=(n, 8))
-    emb[1] = emb[0] = emb[0]  # an exact near-duplicate pair
+    emb[1] = emb[0]  # an exact near-duplicate pair
     labels[1] = labels[0]
     df = pd.DataFrame({"text": texts, "label": labels, "split": "train"})
     test_df = pd.DataFrame({"text": ["test 0"], "label": [0]})
