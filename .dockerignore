@@ -1,0 +1,14 @@
+# Keep the build context small: only the package, configs and the final model are needed.
+.git
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.ipynb_checkpoints
+*.ipynb
+mlruns
+.mlruns
+tests
+artifacts/*
+!artifacts/finetuned_model
+artifacts/finetuned_model/checkpoint-*

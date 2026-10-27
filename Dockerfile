@@ -1,5 +1,5 @@
 ##########
-## Builder stage: create a uv-managed virtualenv with all deps + project
+## Builder stage: create a uv-managed virtualenv with runtime deps + project
 ##########
 FROM python:3.11-slim AS builder
 
@@ -15,15 +15,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.24-debian-slim /uv /uvx /bin/
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_LINK_MODE=copy
 
-# First sync only dependencies for better layer caching
+# First sync only runtime dependencies (no dev tools like jupyter/ruff/pytest) for better layer caching
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-editable
+    uv sync --frozen --no-dev --no-install-project --no-editable
 
-# Now add the rest of the source and install the project itself
-COPY . /app
+# Now add only the source needed to install the project itself
+COPY README.md ./
+COPY booking_sentiment ./booking_sentiment
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-editable
+    uv sync --frozen --no-dev --no-editable
 
 
 ##########
@@ -41,13 +42,13 @@ WORKDIR /app
 # Copy the virtualenv built by uv (includes the installed booking_sentiment package)
 COPY --from=builder /app/.venv /app/.venv
 
-# Copy only what we need at runtime: configs and the fine‑tuned model
+# Copy only what we need at runtime: configs and the fine-tuned model
+# (training checkpoints are excluded via .dockerignore)
 COPY configs ./configs
 COPY artifacts/finetuned_model ./artifacts/finetuned_model
 
 # By default start in interactive inference mode, using the quick config.
 # You can override the command, e.g.:
-#   docker run --rm -it booking-sentiment-model evaluate --config configs/quick.json
+#   docker run --rm -it booking-sentiment-cli evaluate --config configs/quick.json
 ENTRYPOINT ["booking-sentiment"]
 CMD ["inference", "--config", "configs/quick.json"]
-

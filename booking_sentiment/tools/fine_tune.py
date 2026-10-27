@@ -1,172 +1,151 @@
-from __future__ import annotations  # ensure forward references in type hints work correctly
+from __future__ import annotations
 
-import os  # standard library for interacting with the operating system (env vars, paths, etc.)
-from pathlib import Path  # object-oriented filesystem paths
-from typing import Any, Dict, Tuple  # generic typing helpers
+import os
+import shutil
+from pathlib import Path
+from typing import Any, Dict, Tuple
 
-import numpy as np  # numerical operations (not heavily used in this file)
-import pandas as pd  # tabular data handling for train/valid/test DataFrames
-import torch  # core PyTorch library for tensors and models
-from datasets import Dataset, DatasetDict  # Hugging Face datasets wrapper
-from sklearn.metrics import matthews_corrcoef  # evaluation metric for binary classification
-from torch.nn.functional import softmax  # softmax function for converting logits to probabilities
-from transformers import (  # Hugging Face Transformers training and model utilities
-    AutoModelForSequenceClassification,  # generic sequence classification model loader
-    AutoTokenizer,  # tokenizer loader for the chosen model
-    EvalPrediction,  # container for evaluation predictions inside Trainer
-    Trainer,  # high-level training loop abstraction
-    TrainingArguments,  # configuration object for Trainer
+import pandas as pd
+import torch
+from datasets import Dataset, DatasetDict
+from sklearn.metrics import matthews_corrcoef
+from torch.nn.functional import softmax
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    EvalPrediction,
+    Trainer,
+    TrainingArguments,
 )
 
-from ..config import FineTuneConfig, PathsConfig  # application-specific configuration dataclasses
-from ..runtime import configure_runtime  # helper to set seeds, device, and deterministic behavior
+from ..config import FineTuneConfig, PathsConfig
+from ..runtime import configure_runtime, resolve_device
+from .inference import MAX_LENGTH
+
+
+def compute_metrics(eval_pred: EvalPrediction) -> dict:
+    """
+    Convert raw model outputs into probabilities, threshold at 0.5 and compute MCC
+    (a balanced metric that is also used to pick the best checkpoint).
+    """
+    y_true = eval_pred.label_ids.ravel()
+    logits = torch.from_numpy(eval_pred.predictions).float()
+    y_pred_proba = softmax(logits, dim=1)[:, 1].numpy()
+    y_pred = (y_pred_proba >= 0.5).astype(int)
+    return {"MCC": matthews_corrcoef(y_true, y_pred)}
 
 
 class FineTuneModel:
     """
-    Encapsulates fine-tuning logic for DistilBERT (or other HF models).
+    Fine-tunes DistilBERT (or another HF text model) for binary sentiment classification.
     """
 
     def __init__(
         self,
-        train_df: pd.DataFrame,  # training data containing at least "text" and "label" columns
+        train_df: pd.DataFrame,  # training data with "text" and "label" columns
         valid_df: pd.DataFrame,  # validation data used for model selection
-        test_df: pd.DataFrame,  # held-out test data (not used for training)
-        fine_tune_cfg: FineTuneConfig,  # hyperparameters and model name configuration
-        paths: PathsConfig,  # filesystem paths for saving artifacts
+        fine_tune_cfg: FineTuneConfig,
+        paths: PathsConfig,
     ) -> None:
-        # Store all inputs as instance attributes for later use
         self.train_df = train_df
         self.valid_df = valid_df
-        self.test_df = test_df
         self.fine_tune_cfg = fine_tune_cfg
         self.paths = paths
 
     def _build_datasets(self, tokenizer) -> DatasetDict:
         """
-        Convert pandas DataFrames to Hugging Face DatasetDict and tokenize text.
+        Convert pandas DataFrames to a tokenized Hugging Face DatasetDict.
+        Padding is done per batch by the Trainer's data collator.
         """
-        ds = DatasetDict()  # container for multiple dataset splits
-        ds["train"] = Dataset.from_pandas(self.train_df, split="train")  # training split
-        ds["valid"] = Dataset.from_pandas(self.valid_df, split="valid")  # validation split
-        # test set is not used for training or validation but is prepared for later evaluation
-        ds["test"] = Dataset.from_pandas(self.test_df, split="test")  # test split
+        ds = DatasetDict(
+            {
+                "train": Dataset.from_pandas(self.train_df[["text", "label"]], preserve_index=False),
+                "valid": Dataset.from_pandas(self.valid_df[["text", "label"]], preserve_index=False),
+            }
+        )
 
         def tokenize(examples: dict) -> dict:
-            """
-            Tokenize a batch of examples and attach the labels.
-            """
-            # Apply the tokenizer to the "text" column; pad and truncate to model defaults
-            encoded = tokenizer(examples["text"], padding=True, truncation=True)
-            # Copy labels over so Trainer can use them for supervision
-            encoded["label"] = examples["label"]
-            return encoded
+            return tokenizer(examples["text"], truncation=True, max_length=MAX_LENGTH)
 
-        # Apply tokenization to all splits in a batched fashion for efficiency
-        ds = ds.map(tokenize, batched=True)
-        return ds
+        return ds.map(tokenize, batched=True, remove_columns=["text"])
 
     def run(self) -> Tuple[Path, Dict[str, Any]]:
         """
-        Fine-tune DistilBERT (or other HF model) on GPU or CPU and save artifacts.
+        Fine-tune the model on GPU or CPU and save the best checkpoint (by validation MCC).
         """
-        print("[tune] Running fine-tune training")  # simple progress log
-        # Directory where the fine-tuned model and related outputs will be stored
-        out_dir = self.paths.artifacts_dir / "finetuned_model"
-        out_dir.mkdir(parents=True, exist_ok=True)  # create directory tree if needed
+        print("[tune] Running fine-tune training")
+        cfg = self.fine_tune_cfg
+        model_dir = self.paths.artifacts_dir / "finetuned_model"
+        # Intermediate checkpoints live outside the model directory and are removed after training.
+        checkpoints_dir = self.paths.artifacts_dir / "checkpoints"
 
-        # Determinism settings (seed, device, etc.) for reproducible experiments
-        configure_runtime(self.fine_tune_cfg.seed, self.fine_tune_cfg.device)
+        configure_runtime(cfg.seed, cfg.device)
+        use_cuda = resolve_device(cfg.device) == "cuda"
 
-        # Disable tokenizer parallelism warnings by default unless already set
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        # Load tokenizer corresponding to the chosen model name
-        tokenizer = AutoTokenizer.from_pretrained(self.fine_tune_cfg.model_name)
-        # Build and tokenize datasets from DataFrames
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
         datasets_tokenized = self._build_datasets(tokenizer)
-        # Initialize a sequence classification model with 2 labels (binary sentiment)
         model = AutoModelForSequenceClassification.from_pretrained(
-            self.fine_tune_cfg.model_name,
-            num_labels=2,  # 0 = negative, 1 = positive
+            cfg.model_name,
+            num_labels=2,
+            id2label={0: "negative", 1: "positive"},
+            label2id={"negative": 0, "positive": 1},
         )
 
-        # Compute metrics: MCC (Matthews Correlation Coefficient) for evaluation metrics
-        # (MCC is a balanced metric suitable for imbalanced binary classification)
-        def compute_metrics(eval_pred: EvalPrediction) -> dict:
-            """
-            Convert raw model outputs into probabilities, threshold into labels,
-            and compute MCC between predictions and ground truth.
-            """
-            # Flatten true labels array in case of extra dimensions
-            y_true = eval_pred.label_ids.ravel()
-            # Convert raw logits (numpy) to a PyTorch tensor for softmax
-            logits = torch.from_numpy(eval_pred.predictions)
-            # Compute probability of the positive class (index 1)
-            y_pred_proba = softmax(logits, dim=1)[:, 1].numpy()
-            # Apply 0.5 threshold to get binary predictions
-            y_pred = (y_pred_proba >= 0.5).astype(int)
-            # Compute Matthews Correlation Coefficient as the main metric
-            mcc = matthews_corrcoef(y_true, y_pred)
-            return {"MCC": mcc}
-
-        # Define all training-related hyperparameters and settings for the Trainer
         training_args = TrainingArguments(
-            output_dir=str(out_dir),  # directory for checkpoints and logs
-            learning_rate=self.fine_tune_cfg.learning_rate,  # learning rate for optimizer
-            num_train_epochs=self.fine_tune_cfg.epochs,  # total number of training epochs
-            eval_strategy="steps",  # run evaluation every N steps (see eval_steps)
-            save_steps=1000,  # interval for saving checkpoints
-            eval_steps=1000,  # interval for running evaluation
-            save_total_limit=1,  # keep only the best/most recent checkpoint on disk
-            load_best_model_at_end=True,  # restore best-performing checkpoint after training
-            seed=self.fine_tune_cfg.seed,  # RNG seed for reproducibility
-            data_seed=self.fine_tune_cfg.seed,  # RNG seed for dataset-related shuffling
-            fp16=self.fine_tune_cfg.device == "cuda",  # enable mixed precision only on GPU
-            dataloader_num_workers=1,  # number of workers for DataLoader (IO parallelism)
-            use_cpu=self.fine_tune_cfg.device == "cpu",  # force CPU-only training if requested
+            output_dir=str(checkpoints_dir),
+            learning_rate=cfg.learning_rate,
+            num_train_epochs=cfg.epochs,
+            per_device_train_batch_size=cfg.batch_size,
+            per_device_eval_batch_size=cfg.batch_size * 2,
+            warmup_ratio=cfg.warmup_ratio,
+            weight_decay=cfg.weight_decay,
+            eval_strategy="epoch",  # evaluate after every epoch (works for any dataset size)
+            save_strategy="epoch",
+            save_total_limit=1,
+            load_best_model_at_end=True,  # restore the best checkpoint after training...
+            metric_for_best_model="MCC",  # ...where "best" means the highest validation MCC
+            greater_is_better=True,
+            seed=cfg.seed,
+            data_seed=cfg.seed,
+            fp16=use_cuda,  # mixed precision only when a GPU is actually used
+            use_cpu=not use_cuda,
+            dataloader_num_workers=1,
         )
 
-        # Create the Trainer object which handles the full training loop
         trainer = Trainer(
-            model=model,  # model to fine-tune
-            args=training_args,  # training configuration
-            train_dataset=datasets_tokenized["train"],  # tokenized training data
-            eval_dataset=datasets_tokenized["valid"],  # tokenized validation data
-            tokenizer=tokenizer,  # tokenizer for dynamic padding/collation
-            compute_metrics=compute_metrics,  # function for computing evaluation metrics
+            model=model,
+            args=training_args,
+            train_dataset=datasets_tokenized["train"],
+            eval_dataset=datasets_tokenized["valid"],
+            processing_class=tokenizer,  # also enables dynamic padding
+            compute_metrics=compute_metrics,
         )
-        # Run the training loop according to TrainingArguments
         trainer.train()
-        # Save the final/best model weights and configuration to disk
-        trainer.save_model(str(out_dir))
-        # Save the tokenizer used during training (vocab, merges, config)
-        tokenizer.save_pretrained(str(out_dir))
-        # Persist tokenized datasets so they can be reused later without recomputation
-        tokenized_dir = self.paths.artifacts_dir / "tokenized"
-        tokenized_dir.mkdir(parents=True, exist_ok=True)
-        datasets_tokenized.save_to_disk(str(tokenized_dir))
-        # Return the directory containing the model and the best evaluation metric achieved
-        return out_dir, {"best_metric": trainer.state.best_metric}
+
+        # Save only the final (best) model + tokenizer into a fresh directory.
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
+        trainer.save_model(str(model_dir))
+        tokenizer.save_pretrained(str(model_dir))
+        shutil.rmtree(checkpoints_dir, ignore_errors=True)
+
+        print(f"[tune] Best validation MCC: {trainer.state.best_metric}")
+        return model_dir, {"best_metric": trainer.state.best_metric}
 
 
 def fine_tune(
-    train_df: pd.DataFrame,  # training data (text + label)
-    valid_df: pd.DataFrame,  # validation data
-    test_df: pd.DataFrame,  # test data (passed through for completeness)
-    fine_tune_cfg: FineTuneConfig,  # hyperparameters and model configuration
-    paths: PathsConfig,  # filesystem paths for artifacts
+    train_df: pd.DataFrame,
+    valid_df: pd.DataFrame,
+    fine_tune_cfg: FineTuneConfig,
+    paths: PathsConfig,
 ) -> Tuple[Path, Dict[str, Any]]:
     """
-    Backwards-compatible wrapper around FineTuneModel.run.
-    Creates a FineTuneModel instance and executes the training pipeline.
+    Convenience wrapper used by the CLI.
     """
-    # Instantiate the object-oriented fine-tuning helper
-    model = FineTuneModel(
+    return FineTuneModel(
         train_df=train_df,
         valid_df=valid_df,
-        test_df=test_df,
         fine_tune_cfg=fine_tune_cfg,
         paths=paths,
-    )
-    # Launch fine-tuning and return its outputs
-    return model.run()
+    ).run()

@@ -15,3 +15,5 @@ mlruns/
 .data_analyze_instr.md
 .instr.ipynb
 finetuned_model/
+*.egg-info/
+.pytest_cache/

@@ -1,62 +1,133 @@
 from __future__ import annotations
 
-from typing import Tuple
 import os
+from dataclasses import dataclass, field
+from typing import Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import typer
 from cleanlab import Datalab
-from sentence_transformers import SentenceTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_predict
-from datasets import Dataset
+from sklearn.neighbors import NearestNeighbors
+
 from ..config import QualityConfig
+from ..runtime import resolve_device
 
 # gets rid of irritating warnings
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+LABEL_NAMES = {0: "NEGATIVE", 1: "POSITIVE"}
+
+
+@dataclass
+class QualityFixes:
+    """
+    Changes chosen by Cleanlab for one iteration.
+    All values are row positions (0..n-1) in the dataframe that was analysed.
+    """
+
+    label_fixes: dict[int, int] = field(default_factory=dict)  # position -> new label
+    duplicates_to_drop: list[int] = field(default_factory=list)
+    outliers_to_drop: list[int] = field(default_factory=list)
+
+
+def select_duplicates_to_drop(
+    near_duplicate_sets: Sequence[Sequence[int]],
+    flagged: Sequence[int],
+    labels: np.ndarray,
+) -> list[int]:
+    """
+    Keep one example from every near-duplicate group and drop the others.
+    If the members of a group have different labels, the whole group is dropped,
+    because there is no way to tell which label is right.
+    """
+    dropped: set[int] = set()
+    for idx in sorted(int(i) for i in flagged):
+        if idx in dropped:
+            continue
+        group = ({idx} | {int(j) for j in near_duplicate_sets[idx]}) - dropped
+        if len({int(labels[i]) for i in group}) > 1:
+            dropped |= group
+        else:
+            dropped |= group - {idx}
+    return sorted(dropped)
+
+
+def apply_fixes(df: pd.DataFrame, fixes: QualityFixes) -> Tuple[pd.DataFrame, np.ndarray]:
+    """
+    Apply label fixes and row drops by position. Returns the fixed dataframe
+    (with a fresh 0..n-1 index) and the positions of the rows that were kept,
+    so callers can keep other arrays (e.g. embeddings) aligned.
+    """
+    out = df.reset_index(drop=True).copy()
+    if fixes.label_fixes:
+        positions = list(fixes.label_fixes.keys())
+        out.loc[positions, "label"] = list(fixes.label_fixes.values())
+    to_drop = set(fixes.duplicates_to_drop) | set(fixes.outliers_to_drop)
+    kept = np.array([i for i in range(len(out)) if i not in to_drop], dtype=int)
+    return out.iloc[kept].reset_index(drop=True), kept
+
+
+def find_test_leaks(
+    embeddings: np.ndarray, test_embeddings: np.ndarray, min_similarity: float
+) -> np.ndarray:
+    """
+    Return positions of rows whose cosine similarity to the closest test row is >= min_similarity.
+    """
+    if len(embeddings) == 0 or len(test_embeddings) == 0:
+        return np.array([], dtype=int)
+    nn = NearestNeighbors(n_neighbors=1, metric="cosine").fit(test_embeddings)
+    distances, _ = nn.kneighbors(embeddings)
+    similarity = 1.0 - distances[:, 0]
+    return np.flatnonzero(similarity >= min_similarity)
+
 
 class QualityInterface:
     """
-    Interface for running CleanLab-based data quality analysis.
+    Cleanlab-based data quality step for the train+valid data.
 
-    It encapsulates:
-    - building embeddings and initial model predictions,
-    - removing near-duplicates,
-    - fixing label issues,
-    - dropping outliers,
+    The test split is never modified: it is only used to remove train/valid rows
+    that (almost) duplicate a test row, so the evaluation is not leaked.
+    For train+valid it:
+    - fixes label issues,
+    - keeps one example per near-duplicate group,
+    - drops outliers,
     while collecting a textual description of the process.
     """
 
     def __init__(self, cfg: QualityConfig) -> None:
         self.cfg = cfg
         self._logs: list[str] = []
+        self._encoder = None
 
     # --- logging helpers ---
-    def _log(self, message: str = "") -> None:
+    def _log(self, message: str = "", echo: bool = True) -> None:
+        """Add a line to the report; `echo=False` keeps per-row details out of the console."""
         self._logs.append(message)
-        typer.echo(message)
+        if echo:
+            typer.echo(message)
 
-    def _section_logs(self, start_idx: int) -> str:
-        """Return only the logs added since start_idx as a single string."""
-        return "\n".join(self._logs[start_idx:])
+    def _embed(self, texts: Sequence[str]) -> np.ndarray:
+        if self._encoder is None:
+            from sentence_transformers import SentenceTransformer
 
-    # ---get_initial_model_data: get the embeddings and pred_probs from the initial model ---
-    def _get_initial_model_data(
-        self,
-        texts: list[str],
-        labels: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute embeddings and cross-validated prediction probabilities."""
-        model = SentenceTransformer(self.cfg.embedding_model_name, device=self.cfg.device)
-        embeddings = model.encode(texts, show_progress_bar=True)
+            self._encoder = SentenceTransformer(
+                self.cfg.embedding_model_name, device=resolve_device(self.cfg.device)
+            )
+        return self._encoder.encode(
+            list(texts), show_progress_bar=True, normalize_embeddings=True
+        )
 
+    def _cross_val_pred_probs(self, embeddings: np.ndarray, labels: np.ndarray) -> np.ndarray:
+        """Out-of-fold class probabilities from a logistic regression on the embeddings."""
         clf = LogisticRegression(
             random_state=0,
             C=self.cfg.regularization_c,
             solver="liblinear",
         )
-        pred_probs = cross_val_predict(
+        return cross_val_predict(
             clf,
             embeddings,
             labels,
@@ -64,217 +135,117 @@ class QualityInterface:
             method="predict_proba",
             n_jobs=1,
         )
-        return embeddings, pred_probs
 
     def _verify_sample_size(self, embeddings: np.ndarray, pred_probs: np.ndarray) -> None:
         """Raise if embeddings/pred_probs are inconsistent; log basic shapes."""
-        same_length = len(embeddings) == len(pred_probs)
-        correct_dim = pred_probs.ndim == 2
-
-        if same_length and correct_dim:
-            self._log(f"[quality] Embeddings shape: {embeddings.shape}")
-            self._log(f"[quality] Pred_probs shape: {pred_probs.shape}")
-            self._log("[quality] Verification passed!")
-            return
-
-        if not same_length:
-            self._log(
-                f"❌ Embeddings and pred_probs have different lengths: {len(embeddings)} != {len(pred_probs)}"
+        if len(embeddings) != len(pred_probs) or pred_probs.ndim != 2:
+            raise ValueError(
+                f"[quality] Sample verification failed: embeddings {embeddings.shape}, "
+                f"pred_probs {pred_probs.shape}"
             )
-        if not correct_dim:
-            self._log(f"[quality] Pred_probs have wrong dimension: {pred_probs.ndim} (expected 2)")
-        raise ValueError("[quality] Sample verification failed.")
+        self._log(f"[quality] Embeddings shape: {embeddings.shape}")
+        self._log(f"[quality] Pred_probs shape: {pred_probs.shape}")
 
-    # --- step 1: remove near-duplicates ---
-    def _remove_duplicates(
-        self,
-        df: pd.DataFrame,
-        texts: np.ndarray,
-        labels: np.ndarray,
-        lab: Datalab,
-    ) -> Tuple[pd.DataFrame, str]:
-        start_idx = len(self._logs)
+    def _log_rows(self, title: str, positions: Sequence[int], texts: np.ndarray, labels: np.ndarray) -> None:
+        for pos in positions:
+            label = int(labels[pos])
+            self._log(f"\n--- {title} ---", echo=False)
+            self._log(f"Label: {LABEL_NAMES.get(label, label)} ({label})", echo=False)
+            self._log(f'Text: "{texts[pos]}"', echo=False)
+        if len(positions):
+            self._log(echo=False)
 
-        duplicate_issues = lab.get_issues("near_duplicate")
-        duplicate_issues = duplicate_issues[duplicate_issues["is_near_duplicate_issue"]]
-        duplicate_issues = duplicate_issues.sort_values(by="near_duplicate_score")
+    # --- one Cleanlab pass: decide what to change (by position) ---
+    def _find_fixes(self, df: pd.DataFrame, embeddings: np.ndarray) -> QualityFixes:
+        texts = df["text"].to_numpy()
+        labels = df["label"].to_numpy()
 
-        df_deduplicated = df.copy()
-        if len(duplicate_issues) == 0:
-            self._log("[quality] No near-duplicate issues detected by CleanLab.")
-            self._log()
-        else:
-            self._log(f"[quality] Near-duplicate issues flagged: {len(duplicate_issues)}")
-            self._log("all near-duplicate issues:")
-            for idx, row in duplicate_issues.iterrows():
-                text = texts[idx]
-                score = row["near_duplicate_score"]
-                label = labels[idx]
-                label_name = "POSITIVE" if label == 1 else "NEGATIVE"
+        pred_probs = self._cross_val_pred_probs(embeddings, labels)
+        self._verify_sample_size(embeddings, pred_probs)
 
-                self._log(f"\n--- Near-duplicate (Score: {score:.4f}) ---")
-                self._log(f"Label: {label_name} ({label})")
-                self._log(f"Text: \"{text}\"")
-                self._log("-" * 60)
-                self._log()
+        lab = Datalab(df[["text", "label"]], label_name="label", task="classification")
+        lab.find_issues(
+            pred_probs=pred_probs,
+            features=embeddings,
+            issue_types={"label": {}, "near_duplicate": {}, "outlier": {}},
+        )
 
-            df_deduplicated = df_deduplicated.drop(index=duplicate_issues.index)
-            df_deduplicated = df_deduplicated.reset_index(drop=True)
-            self._log(f"[quality] Deduplicated dataframe: {len(df_deduplicated)}")
-            self._log(
-                f"[quality] Dropped {len(duplicate_issues)} duplicate rows ({len(df)} -> {len(df_deduplicated)})"
-            )
-            self._log()
+        fixes = QualityFixes()
 
-        description = self._section_logs(start_idx)
-        return df_deduplicated, description
-
-    # --- step 2: fix label issues ---
-    def _fix_labels(
-        self,
-        df: pd.DataFrame,
-        texts: np.ndarray,
-        labels: np.ndarray,
-        lab: Datalab,
-    ) -> Tuple[pd.DataFrame, str]:
-        start_idx = len(self._logs)
-
+        # step 1: label issues -> take the label predicted by Cleanlab
         label_issues = lab.get_issues("label")
-        label_issues = label_issues[label_issues["is_label_issue"]]
-        label_issues = label_issues.sort_values(by="label_score")
+        label_issues = label_issues[label_issues["is_label_issue"]].sort_values(by="label_score")
+        fixes.label_fixes = {
+            int(pos): int(new)
+            for pos, new in label_issues["predicted_label"].items()
+            if int(new) != int(labels[pos])
+        }
+        self._log(f"[quality] Label issues flagged and fixed: {len(fixes.label_fixes)}")
+        for pos, new in list(fixes.label_fixes.items())[:10]:
+            self._log(f"y_true {labels[pos]}, y_fixed {new}, text: {texts[pos]}", echo=False)
+        fixed_labels = labels.copy()
+        for pos, new in fixes.label_fixes.items():
+            fixed_labels[pos] = new
 
-        df_label_fixed = df.copy()
-        if len(label_issues) == 0:
-            self._log("[quality] No label issues detected by CleanLab.")
-            self._log()
-        else:
-            self._log(f"[quality] Label issues flagged: {len(label_issues)}")
-            top_label_issues_y_true = label_issues.head(10)["given_label"]
-            top_label_issues_y_pred = label_issues.head(10)["predicted_label"]
-            top_label_issues_idxs = label_issues.head(10).index
-            top_label_issues_texts = texts[top_label_issues_idxs]
+        # step 2: near-duplicates -> keep one example per group (using the fixed labels)
+        dup_issues = lab.get_issues("near_duplicate")
+        flagged = np.flatnonzero(dup_issues["is_near_duplicate_issue"].to_numpy())
+        near_duplicate_sets = lab.get_info("near_duplicate")["near_duplicate_sets"]
+        fixes.duplicates_to_drop = select_duplicates_to_drop(near_duplicate_sets, flagged, fixed_labels)
+        self._log(
+            f"[quality] Near-duplicates flagged: {len(flagged)}, "
+            f"dropped: {len(fixes.duplicates_to_drop)} (one example per group is kept)"
+        )
+        self._log_rows("Dropped near-duplicate", fixes.duplicates_to_drop, texts, fixed_labels)
 
-            self._log("Top 10 label issues")
-            for text, y_true, y_pred in zip(
-                top_label_issues_texts, top_label_issues_y_true, top_label_issues_y_pred
-            ):
-                self._log(f"y_true {y_true}, y_pred {y_pred}, text: {text}")
-                self._log()
-
-            # make sure we don't get key errors - we removed some rows earlier during deduplication
-            label_issues = label_issues[label_issues.index.isin(df.index)]
-
-            idxs = label_issues.index.tolist()
-            pred_labels = label_issues["predicted_label"]
-            df_label_fixed.loc[idxs, "label"] = pred_labels
-            self._log(f"[quality] Fixed labels for {len(idxs)} rows")
-            self._log()
-
-        description = self._section_logs(start_idx)
-        return df_label_fixed, description
-
-    # --- step 3: drop outlier issues ---
-    def _remove_outliers(
-        self,
-        df: pd.DataFrame,
-        texts: np.ndarray,
-        labels: np.ndarray,
-        lab: Datalab,
-    ) -> Tuple[pd.DataFrame, str]:
-        start_idx = len(self._logs)
-
+        # step 3: outliers -> drop
         outlier_issues = lab.get_issues("outlier")
-        outlier_issues = outlier_issues[outlier_issues["is_outlier_issue"]]
-        outlier_issues = outlier_issues.sort_values(by="outlier_score")
+        outlier_issues = outlier_issues[outlier_issues["is_outlier_issue"]].sort_values(by="outlier_score")
+        fixes.outliers_to_drop = [int(p) for p in outlier_issues.index]
+        self._log(f"[quality] Outliers flagged and dropped: {len(fixes.outliers_to_drop)}")
+        self._log_rows("Dropped outlier", fixes.outliers_to_drop, texts, fixed_labels)
 
-        df_outlier_and_label_fixed = df.copy()
-        if len(outlier_issues) == 0:
-            self._log("[quality] No outlier issues detected by CleanLab.")
-            self._log()
-        else:
-            self._log(f"[quality] Outliers flagged by CleanLab: {len(outlier_issues)} (kept)")
-            self._log("Outliers with the strongest confidence (lowest score):")
-            for idx, row in outlier_issues.iterrows():
-                text = texts[idx]
-                score = row["outlier_score"]
-                label = labels[idx]
-                label_name = "POSITIVE" if label == 1 else "NEGATIVE"
+        return fixes
 
-                self._log(f"\n--- Outlier (Score: {score:.4f}) ---")
-                self._log(f"Label: {label_name} ({label})")
-                self._log(f"Text: \"{text}\"")
-                self._log("-" * 60)
-                self._log()
-
-            outlier_issues = outlier_issues[outlier_issues.index.isin(df.index)]
-            idxs = outlier_issues.index.tolist()
-            df_outlier_and_label_fixed = df_outlier_and_label_fixed.drop(index=idxs)
-            self._log(
-                f"[quality] Dropped {len(outlier_issues)} outlier rows ({len(df)} -> {len(df_outlier_and_label_fixed)})"
-            )
-            self._log()
-
-        description = self._section_logs(start_idx)
-        return df_outlier_and_label_fixed, description
-
-    # --- public orchestrator: run all steps, optionally multiple iterations ---
-    def run(self, df: pd.DataFrame, iterations: int = 1) -> Tuple[pd.DataFrame, str]:
+    # --- public orchestrator ---
+    def run(self, df: pd.DataFrame, test_df: pd.DataFrame, iterations: int = 1) -> Tuple[pd.DataFrame, str]:
         """
-        Run the full CleanLab quality pipeline:
-        - compute embeddings and initial probabilities,
-        - remove near-duplicates,
-        - fix label issues,
-        - drop outliers.
-        Optionally repeats the whole pipeline `iterations` times, feeding the
-        output of one iteration as input to the next.
-
-        Returns the cleaned dataframe and a markdown-friendly description for
-        all iterations.
+        Clean `df` (train+valid) and return it together with a markdown report.
+        Extra columns in `df` (e.g. "split") are preserved.
         """
-        df_current = df.copy()
-        all_descriptions: list[str] = []
+        self._logs = []
+        df_current = df.reset_index(drop=True).copy()
+
+        self._log("## Test leakage check")
+        embeddings = self._embed(df_current["text"].tolist())
+        test_embeddings = self._embed(test_df["text"].tolist())
+        leaks = find_test_leaks(embeddings, test_embeddings, self.cfg.test_leak_similarity)
+        self._log(
+            f"[quality] Train/valid rows with cosine similarity >= {self.cfg.test_leak_similarity} "
+            f"to a test row: {len(leaks)} (dropped)"
+        )
+        self._log_rows(
+            "Dropped (too similar to a test row)", leaks, df_current["text"].to_numpy(), df_current["label"].to_numpy()
+        )
+        df_current, kept = apply_fixes(df_current, QualityFixes(duplicates_to_drop=leaks.tolist()))
+        embeddings = embeddings[kept]
 
         for i in range(iterations):
-            self._logs = []
+            self._log(f"\n## Iteration {i + 1}")
+            self._log("[quality] Running Cleanlab data quality")
+            fixes = self._find_fixes(df_current, embeddings)
+            n_before = len(df_current)
+            df_current, kept = apply_fixes(df_current, fixes)
+            # Reuse the embeddings of the kept rows instead of encoding them again.
+            embeddings = embeddings[kept]
+            self._log(f"[quality] Rows: {n_before} -> {len(df_current)}")
 
-            self._log(f"## Iteration {i+1}")
-            self._log("[quality] Running CleanLab data quality")
-
-            texts = df_current["text"].values
-            labels = df_current["label"].values
-
-            embeddings, pred_probs = self._get_initial_model_data(
-                texts=texts,
-                labels=labels,
-            )
-
-            self._verify_sample_size(embeddings, pred_probs)
-
-            data_df = df_current[["text", "label"]].copy()
-            dataset = Dataset.from_pandas(data_df, preserve_index=False)
-            dataset.set_format(type="python")
-            lab = Datalab(dataset, label_name="label", task="classification")
-
-            lab.find_issues(pred_probs=pred_probs, features=embeddings)
-            lab.report()
-
-            df_deduplicated, _ = self._remove_duplicates(df_current, texts, labels, lab)
-            df_label_fixed, _ = self._fix_labels(df_deduplicated, texts, labels, lab)
-            df_final, _ = self._remove_outliers(df_label_fixed, texts, labels, lab)
-
-            all_descriptions.append("\n".join(self._logs))
-            df_current = df_final
-
-        full_description = "\n\n".join(all_descriptions)
-        return df_current, full_description
+        return df_current, "\n".join(self._logs)
 
 
-def run_cleanlab(
-    df: pd.DataFrame, cfg: QualityConfig
-) -> Tuple[pd.DataFrame, str]:
+def run_cleanlab(df: pd.DataFrame, test_df: pd.DataFrame, cfg: QualityConfig) -> Tuple[pd.DataFrame, str]:
     """
-    Backwards-compatible function that uses the QualityInterface class
-    to run the full CleanLab pipeline.
+    Convenience function used by the CLI.
     """
     interface = QualityInterface(cfg)
-    return interface.run(df, iterations=cfg.iterations)
+    return interface.run(df, test_df, iterations=cfg.iterations)

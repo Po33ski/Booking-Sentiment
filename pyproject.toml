@@ -1,7 +1,7 @@
 [project]
 name = "MLOps_pipeline"
 version = "1.0.0"
-description = ""
+description = "CLI pipeline for fine-tuning a sentiment classifier on Booking.com reviews"
 readme = "README.md"
 
 requires-python = "==3.11.*"
@@ -9,17 +9,24 @@ requires-python = "==3.11.*"
 dependencies = [
     "captum",
     "cleanlab",
-"datasets<3",
+    "datasets<3",
     "giskard",
-    "jupyter",
+    "ipython",
     "matplotlib",
     "pydantic>=2",
     "pandas",
-    "ruff",
     "scikit-learn",
     "sentence-transformers",
     "typer>=0.9",
-    "transformers[torch]"
+    "transformers[torch]",
+]
+
+# Development tools (installed by `uv sync`, skipped with `uv sync --no-dev`, e.g. in Docker)
+[dependency-groups]
+dev = [
+    "jupyter",
+    "pytest",
+    "ruff",
 ]
 
 [project.scripts]
@@ -28,16 +35,9 @@ booking-sentiment = "booking_sentiment.cli:app"
 [tool.uv]
 package = true
 
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu128" }
-]
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/nightly/cu128"
-explicit = true
-
 [tool.setuptools.packages.find]
 include = ["booking_sentiment*"]
 exclude = ["artifacts", "configs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

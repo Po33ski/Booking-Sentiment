@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import random
 from typing import Optional
 
@@ -12,11 +11,22 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
     torch = None  # type: ignore[assignment]
 
 
+def resolve_device(requested: Optional[str]) -> str:
+    """
+    Return "cuda" only when it was requested and is available; otherwise "cpu".
+    """
+    if (requested or "cpu").lower() != "cuda":
+        return "cpu"
+    if torch is not None and torch.cuda.is_available():
+        return "cuda"
+    print("[runtime] CUDA requested but not available - falling back to CPU.")
+    return "cpu"
+
+
 def configure_runtime(seed: int, device: Optional[str] = None) -> None:
     """
-    Apply deterministic settings (hash seed + PRNG seeds) once per process.
+    Seed the Python, NumPy and PyTorch random number generators.
     """
-    os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
 
@@ -24,7 +34,5 @@ def configure_runtime(seed: int, device: Optional[str] = None) -> None:
         return
 
     torch.manual_seed(seed)
-    normalized_device = (device or ("cuda" if torch.cuda.is_available() else "cpu")).lower()
-    if normalized_device == "cuda" and torch.cuda.is_available():
+    if device == "cuda" and torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-

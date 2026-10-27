@@ -1,31 +1,42 @@
 from __future__ import annotations
 
+import json
 import shutil
-from sklearn.utils import resample
+from pathlib import Path
+
 import pandas as pd
 import typer
 
 from .config import ProjectConfig
-from .tools.data_ingest import load_raw_dataset
-from .tools.data_clean import clean_and_label
-from .tools.quality import run_cleanlab
-from .tools.splits import split_dataframe
-from .tools.fine_tune import fine_tune
-from .tools.evaluate import evaluate_model
-from .tools.behavioral import run_giskard_scan
-from .tools.explain import explain_samples
-from .tools.inference import load_sentiment_classifier
+
+SPLITS = ("train", "valid", "test")
 
 
-
-
-
-# ensure_dirs: ensure the directories exist for the artifacts (splits, models, etc.)
+# ensure_dirs: ensure the artifacts directory exists
 def ensure_dirs(cfg: ProjectConfig) -> None:
     cfg.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-# load: load the raw dataset from HuggingFace and return positive/negative Series
+
+def _raw_splits_dir(cfg: ProjectConfig) -> Path:
+    """Splits written by `split` (before the quality step)."""
+    return cfg.paths.artifacts_dir / "splits_raw"
+
+
+def _splits_dir(cfg: ProjectConfig) -> Path:
+    """Final splits written by `quality` and used for training/evaluation."""
+    return cfg.paths.artifacts_dir / "splits"
+
+
+def _require(path: Path, step: str, hint: str) -> None:
+    if not path.exists():
+        typer.echo(f"[{step}] '{path}' not found. Run 'booking-sentiment {hint}' first.")
+        raise typer.Exit(code=1)
+
+
+# load: load the raw dataset from HuggingFace and save negative/positive texts
 def run_load(cfg: ProjectConfig) -> None:
+    from .tools.data_ingest import load_raw_dataset
+
     ensure_dirs(cfg)
     df_neg, df_pos, df_raw = load_raw_dataset(cfg.dataset)
     out_raw = cfg.paths.artifacts_dir / "raw_preview.parquet"
@@ -37,14 +48,15 @@ def run_load(cfg: ProjectConfig) -> None:
     typer.echo(f"[load] Preview saved to: {out_raw}, {out_neg}, {out_pos}")
 
 
-# clean: clean the raw dataset and save as parquet file with columns: text, label
+# clean: clean the raw texts and save a parquet file with columns: text, label
 def run_clean(cfg: ProjectConfig) -> None:
+    from .tools.data_clean import clean_and_label
+
     ensure_dirs(cfg)
     in_neg = cfg.paths.artifacts_dir / "neg_preview.parquet"
     in_pos = cfg.paths.artifacts_dir / "pos_preview.parquet"
-    if not in_neg.exists() or not in_pos.exists():
-        typer.echo("[clean] 'neg_preview.parquet' or 'pos_preview.parquet' not found. Run 'uv run load' first.")
-        raise typer.Exit(code=1)
+    _require(in_neg, "clean", "load")
+    _require(in_pos, "clean", "load")
     df_neg = pd.read_parquet(in_neg)["text"]
     df_pos = pd.read_parquet(in_pos)["text"]
     df_clean = clean_and_label(df_neg, df_pos, cfg.cleaning)
@@ -53,137 +65,133 @@ def run_clean(cfg: ProjectConfig) -> None:
     typer.echo(f"[clean] Cleaned data saved to: {out_clean}")
 
 
-# quality: run the quality analysis (CleanLab) and return a dataframe with columns: text, label
-def run_quality(cfg: ProjectConfig) -> None:
+# split: sample the cleaned data and split it into train, validation and test sets
+def run_split(cfg: ProjectConfig) -> None:
+    from .tools.splits import sample_dataframe, split_dataframe
+
     ensure_dirs(cfg)
     in_path = cfg.paths.artifacts_dir / "clean.parquet"
-    if not in_path.exists():
-        typer.echo("[quality] 'clean.parquet' not found. Run 'uv run clean' first.")
-        raise typer.Exit(code=1)
+    _require(in_path, "split", "clean")
     df_clean = pd.read_parquet(in_path)
-    if cfg.dataset.sample_size:
-        assert cfg.dataset.sample_size > 0, "Sample size must be greater than 0"
-        df_clean = resample(
-            df_clean,
-            replace=False,
-            n_samples=cfg.dataset.sample_size,
-            random_state=cfg.dataset.random_state,
-            stratify=df_clean["label"],
-        )
-        df_clean = df_clean.reset_index(drop=True)
-    # Run CleanLab on the cleaned dataframe for as many iterations as specified in the config.
-    # All iterations are handled internally by the QualityInterface.
-    df_fixed, description = run_cleanlab(
-        df_clean.copy(),
-        cfg.quality,
+    df_sampled = sample_dataframe(
+        df_clean,
+        cfg.dataset.sample_size,
+        random_state=cfg.dataset.random_state,
+        stratify=cfg.split.stratify,
     )
-    typer.echo(f"[quality] Completed {cfg.quality.iterations} quality iteration(s).")
-    out_fixed = cfg.paths.artifacts_dir / "quality_fixed.parquet"
-    df_fixed.to_parquet(out_fixed, index=False)
-    typer.echo(f"[quality] Quality output saved to: {out_fixed}")
+    parts = split_dataframe(df_sampled, cfg.split)
+    out_dir = _raw_splits_dir(cfg)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, part in zip(SPLITS, parts):
+        part.to_parquet(out_dir / f"{name}.parquet", index=False)
+    typer.echo(f"[split] Saved splits to: {out_dir}")
 
-    # Save the aggregated quality logs as markdown in a separate folder.
+
+# quality: run Cleanlab on train+valid (the test split is kept unchanged)
+def run_quality(cfg: ProjectConfig) -> None:
+    from .tools.quality import run_cleanlab
+
+    ensure_dirs(cfg)
+    raw_dir = _raw_splits_dir(cfg)
+    for name in SPLITS:
+        _require(raw_dir / f"{name}.parquet", "quality", "split")
+    train_df, valid_df, test_df = (pd.read_parquet(raw_dir / f"{name}.parquet") for name in SPLITS)
+
+    df_tv = pd.concat(
+        [train_df.assign(split="train"), valid_df.assign(split="valid")],
+        ignore_index=True,
+    )
+    df_fixed, description = run_cleanlab(df_tv, test_df, cfg.quality)
+    typer.echo(f"[quality] Completed {cfg.quality.iterations} quality iteration(s).")
+
+    out_dir = _splits_dir(cfg)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("train", "valid"):
+        part = df_fixed[df_fixed["split"] == name].drop(columns="split").reset_index(drop=True)
+        part.to_parquet(out_dir / f"{name}.parquet", index=False)
+        typer.echo(f"[quality] {name}: {len(part)} rows")
+    test_df.to_parquet(out_dir / "test.parquet", index=False)
+    typer.echo(f"[quality] test: {len(test_df)} rows (unchanged)")
+    typer.echo(f"[quality] Final splits saved to: {out_dir}")
+
+    # Save the quality report as markdown in a separate folder.
     quality_logs_dir = cfg.paths.artifacts_dir / "quality_logs"
     quality_logs_dir.mkdir(parents=True, exist_ok=True)
     log_path = quality_logs_dir / "quality_log.md"
-    log_markdown = "# CleanLab data quality report\n\n" + description
-    log_path.write_text(log_markdown, encoding="utf-8")
+    log_path.write_text("# Cleanlab data quality report\n\n" + description, encoding="utf-8")
     typer.echo(f"[quality] Quality log saved to: {log_path}")
-
-
-# split: split the dataframe into train, validation and test sets
-def run_split(cfg: ProjectConfig) -> None:
-    ensure_dirs(cfg)
-    in_path = cfg.paths.artifacts_dir / "quality_fixed.parquet"
-    if not in_path.exists():
-        typer.echo("[split] No input data. Run 'uv run clean' (and optionally 'uv run quality') first.")
-        raise typer.Exit(code=1)
-    df_fixed = pd.read_parquet(in_path)
-    if cfg.dataset.sample_size and len(df_fixed) <= cfg.dataset.sample_size:
-        # sample the dataframe to the sample size
-        sample_size_fixed = min(len(df_fixed), cfg.dataset.sample_size)
-        if sample_size_fixed <= len(df_fixed):
-            df_fixed = df_fixed.sample(n=sample_size_fixed, random_state=cfg.dataset.random_state, replace=False)
-            df_fixed = df_fixed.reset_index(drop=True)
-            typer.echo(f"[split] Subsampled to {sample_size_fixed} rows")
-    train_df, valid_df, test_df = split_dataframe(df_fixed, cfg.split)
-    (cfg.paths.artifacts_dir / "splits").mkdir(parents=True, exist_ok=True)
-    train_df.to_parquet(cfg.paths.artifacts_dir / "splits/train.parquet", index=False)
-    valid_df.to_parquet(cfg.paths.artifacts_dir / "splits/valid.parquet", index=False)
-    test_df.to_parquet(cfg.paths.artifacts_dir / "splits/test.parquet", index=False)
-    typer.echo("[split] Saved splits to artifacts/splits")
 
 
 # tune: fine-tune the model on the train and validation sets
 def run_fine_tune(cfg: ProjectConfig) -> None:
+    from .tools.fine_tune import fine_tune
+
     ensure_dirs(cfg)
-    splits_dir = cfg.paths.artifacts_dir / "splits"
-    if not (splits_dir / "train.parquet").exists():
-        typer.echo("[tune] Splits not found. Run 'uv run split' first.")
-        raise typer.Exit(code=1)
+    splits_dir = _splits_dir(cfg)
+    _require(splits_dir / "train.parquet", "tune", "quality")
+    _require(splits_dir / "valid.parquet", "tune", "quality")
     train_df = pd.read_parquet(splits_dir / "train.parquet")
     valid_df = pd.read_parquet(splits_dir / "valid.parquet")
-    test_df = pd.read_parquet(splits_dir / "test.parquet")
-    model_dir, _ = fine_tune(train_df, valid_df, test_df, cfg.fine_tune, cfg.paths)
+    model_dir, _ = fine_tune(train_df, valid_df, cfg.fine_tune, cfg.paths)
     typer.echo(f"[tune] Model artifact at: {model_dir}")
+
 
 # evaluate: evaluate the model on the test set
 def run_evaluate(cfg: ProjectConfig) -> None:
-    ensure_dirs(cfg)
-    splits_dir = cfg.paths.artifacts_dir / "splits"
-    if not (splits_dir / "test.parquet").exists():
-        typer.echo("[evaluate] Test split not found. Run 'uv run split' first.")
-        raise typer.Exit(code=1)
-    test_df = pd.read_parquet(splits_dir / "test.parquet")
-    model_dir = cfg.paths.artifacts_dir / "finetuned_model"
-    tokenized_dir = cfg.paths.artifacts_dir / "tokenized"
-    metrics = evaluate_model(model_dir, tokenized_dir, len(test_df))
-    out = cfg.paths.artifacts_dir / "metrics.json"
-    import json as _json
+    from .tools.evaluate import evaluate_model
 
-    out.write_text(_json.dumps(metrics, indent=2), encoding="utf-8")
+    ensure_dirs(cfg)
+    test_path = _splits_dir(cfg) / "test.parquet"
+    model_dir = cfg.paths.artifacts_dir / "finetuned_model"
+    _require(test_path, "evaluate", "quality")
+    _require(model_dir, "evaluate", "tune")
+    test_df = pd.read_parquet(test_path)
+    metrics = evaluate_model(model_dir, test_df, device=cfg.fine_tune.device)
+    out = cfg.paths.artifacts_dir / "metrics.json"
+    out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     typer.echo(f"[evaluate] Metrics saved to: {out}")
 
 
-# explain: explain the model on the test set
+# explain: explain the model predictions on a few test samples
 def run_explain(cfg: ProjectConfig) -> None:
+    from .tools.explain import explain_samples
+
     ensure_dirs(cfg)
-    splits_dir = cfg.paths.artifacts_dir / "splits"
-    if not (splits_dir / "test.parquet").exists():
-        typer.echo("[explain] Test split not found. Run 'uv run split' first.")
-        raise typer.Exit(code=1)
-    test_df = pd.read_parquet(splits_dir / "test.parquet")
+    test_path = _splits_dir(cfg) / "test.parquet"
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
-    out = cfg.paths.artifacts_dir / "explain"
-    explain_samples(model_dir, test_df, out, visualize=True)
-    typer.echo(f"[explain] Saved attribution TSVs to: {out}")
-
-
-# scan: scan the test set with Giskard
-def run_scan(cfg: ProjectConfig) -> None:
-    ensure_dirs(cfg)
-    test_path = cfg.paths.artifacts_dir / "splits/test.parquet"
-    if not test_path.exists():
-        typer.echo("[scan] Test split not found. Run 'uv run split' first.")
-        raise typer.Exit(code=1)
+    _require(test_path, "explain", "quality")
+    _require(model_dir, "explain", "tune")
     test_df = pd.read_parquet(test_path)
+    out = explain_samples(model_dir, test_df, cfg.paths.artifacts_dir / "explain", visualize=True)
+    typer.echo(f"[explain] Saved attribution TSV/HTML files to: {out}")
+
+
+# scan: scan the model on the test set with Giskard
+def run_scan(cfg: ProjectConfig) -> None:
+    from .tools.behavioral import run_giskard_scan
+
+    ensure_dirs(cfg)
+    test_path = _splits_dir(cfg) / "test.parquet"
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
+    _require(test_path, "scan", "quality")
+    _require(model_dir, "scan", "tune")
+    test_df = pd.read_parquet(test_path)
     out = cfg.paths.artifacts_dir / "giskard"
-    _, results_md = run_giskard_scan(model_dir, test_df, device=getattr(cfg.quality, "device", "cpu"), out_dir=out)
-    typer.echo(f"[scan] Giskard scan completed. Results:")
+    _, results_md = run_giskard_scan(model_dir, test_df, device=cfg.fine_tune.device, out_dir=out)
+    typer.echo("[scan] Giskard scan completed. Results:")
     typer.echo(f"[scan] {results_md}")
     typer.echo(f"[scan] Giskard scan saved to: {out}")
+
 
 # inference: prompt for reviews and classify them with the fine-tuned model
 def run_inference(cfg: ProjectConfig) -> None:
     """
     Interactive inference loop that keeps accepting inputs until the user quits.
     """
-    ensure_dirs(cfg)
+    from .tools.inference import load_sentiment_classifier
+
     model_dir = cfg.paths.artifacts_dir / "finetuned_model"
-    if not model_dir.exists():
-        typer.echo("[inference] 'finetuned_model' not found. Run 'uv run train' first.")
-        raise typer.Exit(code=1)
+    _require(model_dir, "inference", "tune")
 
     classifier = load_sentiment_classifier(model_dir)
     typer.echo("[inference] Type a review to classify (q/quit to exit).")
@@ -200,10 +208,29 @@ def run_inference(cfg: ProjectConfig) -> None:
         label, prob_pos = classifier.predict(text)
         typer.echo(f"[inference] Result: {label} (P(pos)={prob_pos:.3f})")
 
-# purge: purge the artifacts directory
-def run_purge(cfg: ProjectConfig) -> None:
+
+def _is_protected_dir(path: Path) -> bool:
+    """True for directories that must never be wiped (project root, home, filesystem root, parents of cwd)."""
+    resolved = path.resolve()
+    cwd = Path.cwd().resolve()
+    return (
+        resolved in {cwd, Path.home().resolve(), Path(resolved.anchor)}
+        or resolved in cwd.parents
+        or (resolved / ".git").exists()
+        or (resolved / "pyproject.toml").exists()
+    )
+
+
+# purge: delete the artifacts directory and recreate it empty
+def run_purge(cfg: ProjectConfig, assume_yes: bool = False) -> None:
     artifacts_dir = cfg.paths.artifacts_dir
+    if _is_protected_dir(artifacts_dir):
+        typer.echo(f"[purge] Refusing to delete '{artifacts_dir.resolve()}' - it is not an artifacts directory.")
+        raise typer.Exit(code=1)
     if artifacts_dir.exists():
+        if not assume_yes and not typer.confirm(f"Delete everything in '{artifacts_dir.resolve()}'?"):
+            typer.echo("[purge] Aborted.")
+            return
         shutil.rmtree(artifacts_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     typer.echo(f"[purge] Cleaned artifacts directory: {artifacts_dir}")
